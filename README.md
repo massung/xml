@@ -1,14 +1,14 @@
 # Introduction
 
-A small, quick, and fairly-well featured XML parser for [LispWorks](!http://www.lispworks.com) with a simple interface. It is only a parser (it is not intended for creating or writing XML files).
+A small, quick, and fairly-well featured XML parser for [LispWorks](http://www.lispworks.com) with a simple interface. It is only a parser (it is not intended for creating or writing XML files).
 
 # License
 
-This package uses the [Apache 2.0 license](!http://www.apache.org/licenses/LICENSE-2.0). Please adhere to it.
+This package uses the [Apache 2.0 license](http://www.apache.org/licenses/LICENSE-2.0). Please adhere to it.
 
 # Quickstart
 
-Once `xml.lisp` has been loaded (it is recommended to use [`defsystem`](!http://www.lispworks.com/documentation/lw445/LWRM/html/lwref-273.htm) to load it), you should be able to immediately begin parsing XML from both a string and a source file:
+Once `xml.lisp` has been loaded (it is recommended to use [`defsystem`](http://www.lispworks.com/documentation/lw445/LWRM/html/lwref-273.htm) to load it), you should be able to immediately begin parsing XML from both a string and a source file:
 
 	CL-USER > (use-package :xml)
 	T
@@ -55,7 +55,7 @@ Once `xml.lisp` has been loaded (it is recommended to use [`defsystem`](!http://
 
 # How It Works
 
-The XML package uses the [DEFLEXER](!http://github.com/massung/lexer) package to tokenize the XML. It is actually four (4) separate lexers, which are used based on the current parse state: comments, tags, CDATA, and body lexers.
+The XML package uses the [DEFLEXER](http://github.com/massung/lexer) package to tokenize the XML. It is actually four (4) separate lexers, which are used based on the current parse state: comments, tags, CDATA, and body lexers.
 
 As the tokens are parsed, the lexer may end up switching the `*XML-LEXER*` global variable to change which tokenizer is being used. This is how the parser can differentiate between the tag `<foo>` and the inner text `"foo"` within the tag.
 
@@ -71,4 +71,4 @@ While being built, each tag's `inner-text` member is actually an output stream t
 
 # Feedback
 
-Something not working right? Have a question or comment? Feel free to email me or create an issue on [GitHub](!http://github.com/massung/xml).
+Something not working right? Have a question or comment? Feel free to email me or create an issue on [GitHub](http://github.com/massung/xml).
