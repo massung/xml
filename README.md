@@ -14,22 +14,24 @@ Once `xml.lisp` has been loaded (it is recommended to use [`defsystem`](http://w
 	T
 
 	CL-USER > (parse-xml "<!entity who \"world\"><say>hello, &who;</say>")
-	<XML::TAG say>
+	<XML::DOC say>
 
-	CL-USER > (tag-text *)
+	CL-USER > (tag-text (doc-root *))
 	"hello, world"
 
 	CL-USER > (parse-xml-file #p"examples/rss.xml")
-	<XML::TAG rss>
+	<XML::DOC rss>
 
 	CL-USER > (query-xml * "/channel/item/title")
 	(#<XML::TAG title> #<XML::TAG title> #<XML::TAG title>)
 
 # Exported Methods
 
+The `XML` package is pretty sparse by design. There are a couple functions for parsing from a source file or string, and searching a document for elements using an xpath. All other methods exposed are accessors in the `doc` or `tag` classes.
+
 ### Parsing Methods
-	(parse-xml string)        ;=> tag
-	(parse-xml-file pathname) ;=> tag
+	(parse-xml string)        ;=> doc
+	(parse-xml-file pathname) ;=> doc
 
 ### Traverse/Query Methods
 
@@ -67,7 +69,13 @@ The parser reduces the tokens into a list of closures that - after being success
 * `*XML-TAG*` is the current tag being parsed.
 * `*XML-STACK*` is the stack of tags being parsed.
 
-While being built, each tag's `inner-text` member is actually an output stream that is written to. When each tag is closed, the `inner-text` member is flushed and the output string is set.
+Once parsed, a new `*XML-DOC*` is created and the first set of closures executed will set the `doc-decl` attributes, `doc-type` DOCTYPE, and `doc-entities` ENTITIES.
+
+When a new tag is found, the current `*XML-TAG*` is pushed onto the `*XML-STACK*` and a new tag is created with the current `*XML-TAG*` as its parent. The `inner-text` property of the new tag is a string output stream. As text is found, it is written to the stream.
+
+As tags are closed, they are first validated and then pushed onto the `tag-elements` property of their parent tag. The `inner-text` stream is then flushed for its text and `*XML-ROOT*` is set to `*XML-TAG*`. Finally, `*XML-STACK*` is popped into `*XML-TAG*` and generation of the XML document tree continues.
+
+This continues until there are no more closures to execute, at which time `*XML-DOC*` is complete and `*XML-ROOT*` should be the top-level element of the document. 
 
 # Feedback
 

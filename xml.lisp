@@ -174,6 +174,10 @@
   ((start xml) $1)
 
   ;; document
+  ((xml :text xml)
+   (if (string= $1 " ") $2 (error "Illegal XML")))
+
+  ;; prolog, entities, and root tag
   ((xml decl doctype entities)
    `(,$1 ,$2 ,@$3))
   ((xml decl entities)
@@ -307,7 +311,9 @@
         (funcall f)))
 
     ;; complete the document and return the root element
-    (setf (doc-root *xml-doc*) *xml-root*)))
+    (prog1
+        *xml-doc*
+      (setf (doc-root *xml-doc*) *xml-root*))))
 
 (defun parse-xml-file (pathname)
   "Read the contents of a file and parse it as XML."
