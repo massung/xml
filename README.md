@@ -13,16 +13,16 @@ Once `xml.lisp` has been loaded (it is recommended to use [`defsystem`](http://w
 	CL-USER > (use-package :xml)
 	T
 
-	CL-USER > (parse-xml "<!entity who \"world\"><say>hello, &who;</say>")
+	CL-USER > (parse-xml "<!entity who \"world\"><say>Hello, &who;!</say>")
 	<XML::DOC say>
 
 	CL-USER > (tag-text (doc-root *))
-	"hello, world"
+	"Hello, world!"
 
-	CL-USER > (parse-xml-file #p"examples/rss.xml")
+	CL-USER > (parse-xml-file #p"test/rss.xml")
 	<XML::DOC rss>
 
-	CL-USER > (query-xml * "/channel/item/title")
+	CL-USER > (query-xml * "/rss/channel/item/title")
 	(#<XML::TAG title> #<XML::TAG title> #<XML::TAG title>)
 
 # Exported Methods
@@ -36,6 +36,7 @@ The `XML` package is pretty sparse by design. There are a couple functions for p
 ### Traverse/Query Methods
 
 	(query-xml tag xpath)     ;=> list
+	(query-xml doc xpath)     ;=> list
 
 ### Document Methods
 

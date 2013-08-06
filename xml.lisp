@@ -29,14 +29,14 @@
    ;; element traversal
    #:query-xml
 
-   ;; doc reader functions
+   ;; doc accessor functions
    #:doc-decl
    #:doc-source
    #:doc-type
    #:doc-entities
    #:doc-root
 
-   ;; tag reader functions
+   ;; tag accessor functions
    #:tag-name
    #:tag-ns
    #:tag-doc
@@ -322,16 +322,19 @@
       (read-sequence s f)
       (parse-xml s pathname))))
 
-(defun query-xml (tag xpath &optional ns)
-  "Recursively descend into a tag finding child tags at a given path."
+(defmethod query-xml ((tag tag) xpath)
+  "Recursively descend into a tag finding child tags with a given path."
   (labels ((query (tag xpath)
              (destructuring-bind (name &rest rest)
                  xpath
                (let ((qs (loop :for e :in (tag-elements tag)
-                               :when (and (string-equal (tag-name e) name)
-                                          (string-equal (tag-ns e) ns))
+                               :when (string-equal (tag-name e) name)
                                :collect e)))
                  (if (null rest)
                      qs
                    (loop :for q :in qs :nconc (query q rest)))))))
     (query tag (split-re #/\// xpath :all t :coalesce-seps t))))
+
+(defmethod query-xml ((doc doc) xpath)
+  "Recursively descend into a document finding all child tags at a given path."
+  (query-xml (make-instance 'tag :elements (list (doc-root doc))) xpath))
