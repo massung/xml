@@ -210,7 +210,7 @@
    `(,(lambda () (append-tag $4 $5 $2))))
   ((tag :lt :id attrs :end :gt)
    `(,(lambda () (append-tag $2 $3))))
-  ((tag :lt :id :ns :id attrs :gt inner-text)
+  ((tag :lt :id :ns :id attrs :gt inner-xml)
    `(,(lambda () (push-tag $4 $5 $2)) ,@$7))
   ((tag :lt :id attrs :gt inner-xml)
    `(,(lambda () (push-tag $2 $3)) ,@$5))
@@ -226,6 +226,8 @@
    `(,(lambda () (push-entity $1)) ,@$2))
 
   ;; child tags
+  ((inner-xml :lt :end :id :ns :id :gt)
+   `(,(lambda () (pop-tag $5 $3))))
   ((inner-xml :lt :end :id :gt)
    `(,(lambda () (pop-tag $3))))
   ((inner-xml tag inner-xml)
@@ -247,6 +249,8 @@
    `())
 
   ;; single attribute
+  ((attr :id :ns :id :eq :quot)
+   `(,$3 ,$5))
   ((attr :id :eq :quot)
    `(,$1 ,$3)))
 
@@ -271,9 +275,10 @@
     ;; create a new tag to house child and text elements
     (setf *xml-tag* tag)))
 
-(defun pop-tag (name)
+(defun pop-tag (name &optional ns)
   "Shift from the parse stack to the current tag and validate."
-  (assert (string-equal name (tag-name *xml-tag*)))
+  (assert (and (string-equal name (tag-name *xml-tag*))
+               (string-equal ns (tag-ns *xml-tag*))))
 
   ;; fix up the current tag (inner text and elements)
   (with-slots (inner-text elements)
