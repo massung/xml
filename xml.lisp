@@ -367,12 +367,8 @@
 
 (defmethod get-attribute ((tag tag) name)
   "Search for an attribute in a tag."
-  (let ((attrib (find name (tag-attributes tag) :key #'attrib-name :test #'string-equal)))
-    (when attrib
-      (attrib-value attrib))))
+  (find name (tag-attributes tag) :key #'attrib-name :test #'string-equal))
 
 (defmethod get-attribute ((doc doc) name)
   "Search for an attribute in the XML declaration."
-  (let ((attrib (find name (doc-decl doc) :key #'attrib-name :test #'string-equal)))
-    (when attrib
-      (attrib-value attrib))))
+  (find name (doc-decl doc) :key #'attrib-name :test #'string-equal))

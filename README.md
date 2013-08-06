@@ -30,6 +30,7 @@ Once `xml.lisp` has been loaded (it is recommended to use [`defsystem`](http://w
 The `XML` package is pretty sparse by design. There are a couple functions for parsing from a source file or string, and searching a document for elements using an xpath. All other methods exposed are accessors in the `doc` or `tag` classes.
 
 ### Parsing Methods
+
 	(parse-xml string)        ;=> doc
 	(parse-xml-file pathname) ;=> doc
 
@@ -41,7 +42,7 @@ The `XML` package is pretty sparse by design. There are a couple functions for p
 	(get-attribute tag name)  ;=> attribute
 	(get-attribute doc name)  ;=> attribute
 
-### Document Methods
+### Document Accessors
 
 	(doc-type doc)            ;=> list
 	(doc-source doc)          ;=> pathname
@@ -49,7 +50,7 @@ The `XML` package is pretty sparse by design. There are a couple functions for p
 	(doc-entities doc)        ;=> list
 	(doc-root doc)            ;=> tag
 
-### Tag Methods
+### Tag Accessors
 
 	(tag-doc tag)             ;=> doc
 	(tag-name tag)            ;=> string
@@ -58,6 +59,12 @@ The `XML` package is pretty sparse by design. There are a couple functions for p
 	(tag-attributes tag)      ;=> list
 	(tag-elements tag)        ;=> list
 	(tag-text tag)            ;=> string
+
+### Attribute Accessors
+
+	(attrib-name attribute)   ;=> string
+	(attrib-ns attribute)     ;=> string
+	(attrib-value attribute)  ;=> string
 
 # How It Works
 
