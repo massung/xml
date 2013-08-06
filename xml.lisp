@@ -55,6 +55,14 @@
 
 (in-package :xml)
 
+(defmacro probe (form)
+  ""
+  (let ((x (gensym)))
+    `(let ((,x ,form))
+       (prog1
+           ,x
+         (print ,x)))))
+
 (defvar *xml-lexer* nil
   "The current lex state for the XML parser.")
 (defvar *xml-doc* nil
@@ -125,24 +133,10 @@
                           (setf *xml-lexer* #'tag-lexer)))
 
   ;; inner text
-  ("[^<&%s%n]+"         (values :text $$))
-  ("[%s%n]+"            (values :text " "))
+  ("[^<%s%n]+"          (values :text $$))
 
-  ;; escaped characters
-  ("&quot;"             (values :text "\""))
-  ("&amp;"              (values :text "&"))
-  ("&lt;"               (values :text "<"))
-  ("&gt;"               (values :text ">"))
-  ("&apos;"             (values :text "'"))
-
-  ;; unicode characters
-  ("&#(%d+);"           (let ((n (parse-integer $1)))
-                          (values :text (string (code-char n)))))
-  ("&#x(%x+);"          (let ((n (parse-integer $1 :radix 16)))
-                          (values :text (string (code-char n)))))
-
-  ;; entity macros
-  ("&([^;]+);"          (values :macro $1)))
+  ;; whitespace is coalesced
+  ("[%s%n]+"            (values :text " ")))
 
 (deflexer comment-lexer ()
   ("$"                  (error "Unterminated comment"))
@@ -271,20 +265,52 @@
 
   ;; single attribute
   ((attr :id :ns :id :eq :quot)
-   (make-instance 'attribute :name $3 :value $5 :ns $1))
+   `(,$3 ,$5))
   ((attr :id :eq :quot)
-   (make-instance 'attribute :name $1 :value $3)))
+   `(,$1 ,$3)))
+
+(defun replace-refs (string)
+  "Replace all &ref; references with their counterparts."
+  (flet ((deref (m)
+           (let ((ref (first (match-captures m))))
+             (cond
+              ((string-equal ref "quot") "\"")
+              ((string-equal ref "apos") "'")
+              ((string-equal ref "lt") "<")
+              ((string-equal ref "gt") ">")
+              ((string-equal ref "amp") "&")
+
+              ;; unicode characters
+              ((char= (char ref 0) #\#)
+               (let ((n (if (char-equal (char ref 1) #\x)
+                            (parse-integer (subseq ref 2) :radix 16)
+                          (parse-integer (subseq ref 1)))))
+                 (string (code-char n))))
+
+              ;; entity references
+              (t (let ((e (assoc ref (doc-entities *xml-doc*) :test #'string-equal)))
+                   (if (null e)
+                       (error "Unknown entity reference ~s" ref)
+                     (second e))))))))
+    (replace-re #.(compile-re "&([^;]+);") #'deref string :all t)))
 
 (defun make-tag (name attrs &optional ns)
   "Create a new tag to push onto the stack."
-  (make-instance 'tag
-                 :name name
-                 :ns ns
-                 :attributes attrs
-                 :doc *xml-doc*
-                 :parent *xml-tag*
-                 :elements ()
-                 :inner-text (make-string-output-stream :element-type 'character)))
+  (let ((attribs (loop :for attr :in attrs
+                       :collect (destructuring-bind (name value &optional ns)
+                                    attr
+                                  (make-instance 'attribute
+                                                 :name name
+                                                 :ns ns
+                                                 :value (replace-refs value))))))
+    (make-instance 'tag
+                   :name name
+                   :ns ns
+                   :attributes attribs
+                   :doc *xml-doc*
+                   :parent *xml-tag*
+                   :elements ()
+                   :inner-text (make-string-output-stream :element-type 'character))))
 
 (defun push-tag (name attrs &optional ns)
   "Set the current tag being parsed."
@@ -319,7 +345,7 @@
   "Write text from the document to the inner text of the current tag."
   (with-slots (inner-text)
       *xml-tag*
-    (princ text inner-text)))
+    (princ (replace-refs text) inner-text)))
 
 (defun push-entity (name)
   "Write macro text from the document to the inner text of the current tag."
