@@ -73,6 +73,8 @@
   "The tag being parsed.")
 (defvar *xml-stack* nil
   "The stack of inner tags.")
+(defvar *xml-tokens* nil
+  "The parsed closures used to build the document.")
 
 (defconstant *xml-keywords* 
   '(("xml"     . :xml)
@@ -190,7 +192,9 @@
 
   ;; document
   ((xml :text xml)
-   (if (string= $1 " ") $2 (error "Illegal XML")))
+   (if (string= $1 " ")
+       $2
+     (error "Text outside root tag")))
 
   ;; prolog, entities, and root tag
   ((xml decl doctype entities)
@@ -356,11 +360,15 @@
 
 (defun parse-xml (string &optional source)
   "Convert an XML string into a Lisp object."
-  (let ((*xml-doc* (make-instance 'doc :source source))
-        (*xml-lexer* #'xml-lexer))
-    (with-lexbuf (string source)
-      (dolist (f (xml-parser #'(lambda () (funcall *xml-lexer*))))
-        (funcall f)))
+  (let* ((*xml-doc* (make-instance 'doc :source source))
+         (*xml-lexer* #'xml-lexer)
+         (*xml-tokens* (with-lexbuf (string source)
+                         (xml-parser #'(lambda ()
+                                         (funcall *xml-lexer*))))))
+
+    ;; build the document and tags
+    (dolist (f *xml-tokens*)
+      (funcall f))
 
     ;; complete the document and return the root element
     (prog1
