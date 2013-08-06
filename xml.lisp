@@ -133,7 +133,7 @@
   ("&amp;"              (values :text "&"))
   ("&lt;"               (values :text "<"))
   ("&gt;"               (values :text ">"))
-  ("&apos;"             (values :text "'"))           
+  ("&apos;"             (values :text "'"))
 
   ;; unicode characters
   ("&#(%d+);"           (let ((n (parse-integer $1)))
@@ -271,7 +271,7 @@
 
   ;; single attribute
   ((attr :id :ns :id :eq :quot)
-   (make-instance 'attribute :name $3 :ns $1 :value $5))
+   (make-instance 'attribute :name $3 :value $5 :ns $1))
   ((attr :id :eq :quot)
    (make-instance 'attribute :name $1 :value $3)))
 
