@@ -55,14 +55,6 @@
 
 (in-package :xml)
 
-(defmacro probe (form)
-  ""
-  (let ((x (gensym)))
-    `(let ((,x ,form))
-       (prog1
-           ,x
-         (print ,x)))))
-
 (defvar *xml-lexer* nil
   "The current lex state for the XML parser.")
 (defvar *xml-doc* nil
@@ -76,17 +68,24 @@
 (defvar *xml-tokens* nil
   "The parsed closures used to build the document.")
 
-(defconstant *xml-keywords* 
+(defconstant +xml-keywords+
   '(("xml"     . :xml)
     ("doctype" . :doctype)
     ("entity"  . :entity)))
 
+(defconstant +xml-entities+
+  '(("quot" "\"")
+    ("apos" "'")
+    ("lt"   "<")
+    ("gt"   ">")
+    ("amp"  "&")))
+
 (defclass doc ()
-  ((decl       :initform nil :initarg :decl     :accessor doc-decl)
-   (source     :initform nil :initarg :source   :accessor doc-source)
-   (doctype    :initform nil :initarg :types    :accessor doc-type)
-   (entities   :initform nil :initarg :entities :accessor doc-entities)
-   (root       :initform nil :initarg :root     :accessor doc-root))
+  ((decl       :initarg :decl     :accessor doc-decl :initform nil)
+   (source     :initarg :source   :accessor doc-source :initform nil)
+   (doctype    :initarg :types    :accessor doc-type :initform nil)
+   (entities   :initarg :entities :accessor doc-entities :initform +xml-entities+)
+   (root       :initarg :root     :accessor doc-root :initform nil))
   (:documentation "XML prolog, entity macros, and root tag."))
 
 (defclass tag ()
@@ -100,9 +99,9 @@
   (:documentation "Attributes, name, inner text, and child tags."))
 
 (defclass attribute ()
-  ((name       :initform nil :initarg :name  :accessor attrib-name)
-   (ns         :initform nil :initarg :ns    :accessor attrib-ns)
-   (value      :initform nil :initarg :value :accessor attrib-value))
+  ((name       :initarg :name  :accessor attrib-name  :initform nil)
+   (ns         :initarg :ns    :accessor attrib-ns    :initform nil)
+   (value      :initarg :value :accessor attrib-value :initform nil))
   (:documentation "A single attribute of a tag."))
 
 (defmethod print-object ((doc doc) s)
@@ -184,7 +183,7 @@
   ("'([^']*)'"          (values :quot $1))
 
   ;; tag and attribute names
-  ("%a[%w%-]*"          (let ((kw (assoc $$ *xml-keywords* :test #'string-equal)))
+  ("%a[%w%-]*"          (let ((kw (assoc $$ +xml-keywords+ :test #'string-equal)))
                           (if kw (cdr kw) (values :id $$)))))
 
 (defparser xml-parser
@@ -277,25 +276,15 @@
   "Replace all &ref; references with their counterparts."
   (flet ((deref (m)
            (let ((ref (first (match-captures m))))
-             (cond
-              ((string-equal ref "quot") "\"")
-              ((string-equal ref "apos") "'")
-              ((string-equal ref "lt") "<")
-              ((string-equal ref "gt") ">")
-              ((string-equal ref "amp") "&")
-
-              ;; unicode characters
-              ((char= (char ref 0) #\#)
-               (let ((n (if (char-equal (char ref 1) #\x)
-                            (parse-integer (subseq ref 2) :radix 16)
-                          (parse-integer (subseq ref 1)))))
-                 (string (code-char n))))
-
-              ;; entity references
-              (t (let ((e (assoc ref (doc-entities *xml-doc*) :test #'string-equal)))
-                   (if (null e)
-                       (error "Unknown entity reference ~s" ref)
-                     (second e))))))))
+             (if (char= (char ref 0) #\#)
+                 (let ((n (if (char-equal (char ref 1) #\x)
+                              (parse-integer (subseq ref 2) :radix 16)
+                            (parse-integer (subseq ref 1)))))
+                   (string (code-char n)))
+               (let ((e (assoc ref (doc-entities *xml-doc*) :test #'string-equal)))
+                 (if (null e)
+                     (error "Unknown entity reference ~s" ref)
+                   (second e)))))))
     (replace-re #.(compile-re "&([^;]+);") #'deref string :all t)))
 
 (defun make-tag (name attrs &optional ns)
