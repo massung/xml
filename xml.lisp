@@ -29,21 +29,29 @@
    ;; element traversal
    #:query-xml
 
-   ;; doc accessor functions
+   ;; attribute traversal
+   #:get-attribute
+
+   ;; doc accessors
    #:doc-decl
    #:doc-source
    #:doc-type
    #:doc-entities
    #:doc-root
 
-   ;; tag accessor functions
+   ;; tag accessors
    #:tag-name
    #:tag-ns
    #:tag-doc
    #:tag-parent
    #:tag-attributes
    #:tag-text
-   #:tag-elements))
+   #:tag-elements
+
+   ;; attribute accessors
+   #:attrib-name
+   #:attrib-ns
+   #:attrib-value))
 
 (in-package :xml)
 
@@ -81,6 +89,12 @@
    (elements   :initarg :elements   :accessor tag-elements))
   (:documentation "Attributes, name, inner text, and child tags."))
 
+(defclass attribute ()
+  ((name       :initform nil :initarg :name  :accessor attrib-name)
+   (ns         :initform nil :initarg :ns    :accessor attrib-ns)
+   (value      :initform nil :initarg :value :accessor attrib-value))
+  (:documentation "A single attribute of a tag."))
+
 (defmethod print-object ((doc doc) s)
   "Output a document to a stream."
   (print-unreadable-object (doc s :type t)
@@ -91,6 +105,13 @@
   (print-unreadable-object (tag s :type t)
     (with-slots (ns name)
         tag
+      (format s "~@[~a:~]~a" ns name))))
+
+(defmethod print-object ((attr attribute) s)
+  "Output an attribute to a stream."
+  (print-unreadable-object (attr s :type t)
+    (with-slots (ns name)
+        attr
       (format s "~@[~a:~]~a" ns name))))
 
 (deflexer xml-lexer (:case-fold t :multi-line t)
@@ -250,9 +271,9 @@
 
   ;; single attribute
   ((attr :id :ns :id :eq :quot)
-   `(,$3 ,$5))
+   (make-instance 'attribute :name $3 :ns $1 :value $5))
   ((attr :id :eq :quot)
-   `(,$1 ,$3)))
+   (make-instance 'attribute :name $1 :value $3)))
 
 (defun make-tag (name attrs &optional ns)
   "Create a new tag to push onto the stack."
@@ -343,3 +364,15 @@
 (defmethod query-xml ((doc doc) xpath)
   "Recursively descend into a document finding all child tags at a given path."
   (query-xml (make-instance 'tag :elements (list (doc-root doc))) xpath))
+
+(defmethod get-attribute ((tag tag) name)
+  "Search for an attribute in a tag."
+  (let ((attrib (find name (tag-attributes tag) :key #'attrib-name :test #'string-equal)))
+    (when attrib
+      (attrib-value attrib))))
+
+(defmethod get-attribute ((doc doc) name)
+  "Search for an attribute in the XML declaration."
+  (let ((attrib (find name (doc-decl doc) :key #'attrib-name :test #'string-equal)))
+    (when attrib
+      (attrib-value attrib))))

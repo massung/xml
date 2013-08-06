@@ -38,6 +38,9 @@ The `XML` package is pretty sparse by design. There are a couple functions for p
 	(query-xml tag xpath)     ;=> list
 	(query-xml doc xpath)     ;=> list
 
+	(get-attribute tag name)  ;=> attribute
+	(get-attribute doc name)  ;=> attribute
+
 ### Document Methods
 
 	(doc-type doc)            ;=> list
