@@ -34,15 +34,18 @@
 
    ;; doc accessors
    #:doc-decl
+   #:doc-stylesheets
    #:doc-source
    #:doc-type
    #:doc-entities
    #:doc-root
 
+   ;; element accessors
+   #:element-name
+   #:element-ns
+   #:element-doc
+
    ;; tag accessors
-   #:tag-name
-   #:tag-ns
-   #:tag-doc
    #:tag-parent
    #:tag-attributes
    #:tag-text
@@ -55,8 +58,6 @@
 
 (in-package :xml)
 
-(defvar *xml-lexer* nil
-  "The current lex state for the XML parser.")
 (defvar *xml-doc* nil
   "The document being parsed currently.")
 (defvar *xml-root* nil
@@ -90,50 +91,46 @@
    (root        :initarg :root        :accessor doc-root        :initform nil))
   (:documentation "XML prolog, entity macros, and root tag."))
 
-(defclass tag ()
-  ((name       :initarg :name       :accessor tag-name)
-   (ns         :initarg :ns         :accessor tag-ns)
-   (doc        :initarg :doc        :accessor tag-doc)
-   (parent     :initarg :parent     :accessor tag-parent)
+(defclass element ()
+  ((name :initarg :name :accessor element-name)
+   (ns   :initarg :ns   :accessor element-ns)
+   (doc  :initarg :doc  :accessor element-doc))
+  (:documentation "All tags and attributes are elements."))
+
+(defclass tag (element)
+  ((parent     :initarg :parent     :accessor tag-parent)
    (attributes :initarg :attributes :accessor tag-attributes)
    (inner-text :initarg :inner-text :accessor tag-text)
    (elements   :initarg :elements   :accessor tag-elements))
   (:documentation "Attributes, name, inner text, and child tags."))
 
-(defclass attribute ()
-  ((name       :initarg :name  :accessor attrib-name  :initform nil)
-   (ns         :initarg :ns    :accessor attrib-ns    :initform nil)
-   (value      :initarg :value :accessor attrib-value :initform nil))
+(defclass attribute (element)
+  ((value      :initarg :value :accessor attrib-value :initform nil))
   (:documentation "A single attribute of a tag."))
 
 (defmethod print-object ((doc doc) s)
   "Output a document to a stream."
   (print-unreadable-object (doc s :type t)
-    (format s "~a" (tag-name (doc-root doc)))))
-
-(defmethod print-object ((tag tag) s)
-  "Output a tag to a stream."
-  (print-unreadable-object (tag s :type t)
     (with-slots (ns name)
-        tag
+        (doc-root doc)
       (format s "~@[~a:~]~a" ns name))))
 
-(defmethod print-object ((attr attribute) s)
-  "Output an attribute to a stream."
-  (print-unreadable-object (attr s :type t)
+(defmethod print-object ((e element) s)
+  "Output an element to a stream."
+  (print-unreadable-object (e s :type t)
     (with-slots (ns name)
-        attr
+        e
       (format s "~@[~a:~]~a" ns name))))
 
 (deflexer xml-lexer (:case-fold t :multi-line t)
   ("<!%-%-"             (prog1
-                            nil
+                            :next-token
                           (comment-lexer)))
 
   ;; tag
   ("<"                  (prog1
                             :lt
-                          (setf *xml-lexer* #'tag-lexer)))
+                          (setf *lexer* #'tag-lexer)))
 
   ;; inner text
   ("[^<%s%n]+"          (values :text $$))
@@ -142,27 +139,27 @@
   ("[%s%n]+"            (values :text " ")))
 
 (deflexer comment-lexer ()
-  ("$"                  (error "Unterminated comment"))
-
-  ;; end of comment
-  ("%-%->[%s%n]*"       (values nil t))
+  ("%-%->[%s%n]*")
 
   ;; skip characters
-  ("."))
+  ("."                  :next-token)
+
+  ;; end of document
+  ("$"                  (error "Unterminated comment")))
 
 (deflexer cdata-lexer ()
-  ("$"                  (error "Unterminated CDATA"))
-  
-  ;; end of data
   ("%]%]>[%s%n]*"       (prog1
                             :end-cdata
-                          (setf *xml-lexer* #'xml-lexer)))
+                          (setf *lexer* #'xml-lexer)))
 
-  ;; any other character
-  ("%]?[^%]]*"          (values :text $$)))
+  ;; any other character sequence
+  ("%]?[^%]]*"          (values :text $$))
+
+  ;; end of document
+  ("$"                  (error "Unterminated CDATA")))
 
 (deflexer tag-lexer (:case-fold t :multi-line t)
-  ("[%s%n]+")
+  ("[%s%n]+"            :next-token)
   ("/"                  :end)
   ("%?"                 :decl)
   ("!"                  :bang)
@@ -173,19 +170,19 @@
   ;; character data
   ("%[CDATA%["          (prog1
                             :cdata
-                          (setf *xml-lexer* #'cdata-lexer)))
+                          (setf *lexer* #'cdata-lexer)))
 
   ;; tag terminal
   (">[%s%n]*"           (prog1
                             :gt
-                          (setf *xml-lexer* #'xml-lexer)))
+                          (setf *lexer* #'xml-lexer)))
 
   ;; attribute quoting
   ("\"([^\"]*)\""       (values :quot $1))
   ("'([^']*)'"          (values :quot $1))
 
   ;; tag and attribute names
-  ("%a[%w%-]*"          (let ((kw (assoc $$ +xml-keywords+ :test #'string-equal)))
+  ("%a[%w%-_]*"         (let ((kw (assoc $$ +xml-keywords+ :test #'string-equal)))
                           (if kw (cdr kw) (values :id $$)))))
 
 (defparser xml-parser
@@ -211,29 +208,31 @@
 
   ;; <?xml ...?>
   ((decl :lt :decl :xml attrs :decl :gt)
-   (lambda () (setf (doc-decl *xml-doc*) $4)))
+   (lambda () (push-decl $4)))
 
   ;; <?xml-stylesheet ...?>
   ((stylesheet :lt :decl :xml-stylesheet attrs :decl :gt)
-   (lambda () (push $4 (doc-stylesheets *xml-doc*))))
+   (lambda () (push-stylesheet $4)))
 
   ;; <!doctype ...>
   ((doctype :lt :bang :doctype :id :id :quot :quot :gt)
-   (lambda () (setf (doc-type *xml-doc*) `(,$4 ,$5 ,$6 ,$7))))
+   (lambda () (set-doctype $4 $5 $6 $7)))
   ((doctype :lt :bang :doctype :id :id :quot :gt)
-   (lambda () (setf (doc-type *xml-doc*) `(,$4 ,$5 ,$6))))
+   (lambda () (set-doctype $4 $5 $6)))
   ((doctype :lt :bang :doctype :id)
-   (lambda () (setf (doc-type *xml-doc*) `(,$4))))
+   (lambda () (set-doctype $4)))
 
   ;; <!entity ...>
   ((entity :lt :bang :entity :id :quot :gt)
-   (lambda () (push `(,$4 ,$5) (doc-entities *xml-doc*))))
+   (lambda () (push-entity $4 $5)))
 
-  ;; <tag attributes... >
+  ;; <tag attributes .../>
   ((tag :lt :id :ns :id attrs :end :gt)
    `(,(lambda () (append-tag $4 $5 $2))))
   ((tag :lt :id attrs :end :gt)
    `(,(lambda () (append-tag $2 $3))))
+
+  ;; <tag attributes ...>
   ((tag :lt :id :ns :id attrs :gt inner-xml)
    `(,(lambda () (push-tag $4 $5 $2)) ,@$7))
   ((tag :lt :id attrs :gt inner-xml)
@@ -246,8 +245,6 @@
   ;; inner text
   ((inner-xml :text inner-xml)
    `(,(lambda () (push-text $1)) ,@$2))
-  ((inner-xml :macro inner-xml)
-   `(,(lambda () (push-entity $1)) ,@$2))
 
   ;; child tags
   ((inner-xml :lt :end :id :ns :id :gt)
@@ -261,8 +258,9 @@
   ((inner-xml :lt :bang :cdata cdata inner-xml)
    `(,@$4 ,@$5))
 
+  ;; block of binary character data
   ((cdata :text cdata)
-   `(,(lambda () (push-text $1)) ,@$2))
+   `(,(lambda () (push-cdata $1)) ,@$2))
   ((cdata :end-cdata)
    `())
 
@@ -274,7 +272,7 @@
 
   ;; single attribute
   ((attr :id :ns :id :eq :quot)
-   `(,$3 ,$5))
+   `(,$3 ,$5 ,$1))
   ((attr :id :eq :quot)
    `(,$1 ,$3)))
 
@@ -289,27 +287,48 @@
                    (string (code-char n)))
                (let ((e (assoc ref (doc-entities *xml-doc*) :test #'string-equal)))
                  (if (null e)
-                     ref
+                     (prog1
+                         ref
+                       (warn "Unrecognized entity ~s" ref))
                    (second e)))))))
     (replace-re #.(compile-re "&([^;]+);") #'deref string :all t)))
 
+(defun make-attribute (name value &optional ns)
+  "Create a new attribute element to add to a tag or document."
+  (make-instance 'attribute
+                 :name name
+                 :ns ns
+                 :doc *xml-doc*
+                 :value (replace-refs value)))
+
 (defun make-tag (name attrs &optional ns)
   "Create a new tag to push onto the stack."
-  (let ((attribs (loop :for attr :in attrs
-                       :collect (destructuring-bind (name value &optional ns)
-                                    attr
-                                  (make-instance 'attribute
-                                                 :name name
-                                                 :ns ns
-                                                 :value (replace-refs value))))))
-    (make-instance 'tag
-                   :name name
-                   :ns ns
-                   :attributes attribs
-                   :doc *xml-doc*
-                   :parent *xml-tag*
-                   :elements ()
-                   :inner-text (make-string-output-stream :element-type 'character))))
+  (make-instance 'tag
+                 :name name
+                 :ns ns
+                 :attributes (loop :for a :in attrs :collect (apply #'make-attribute a))
+                 :doc *xml-doc*
+                 :parent *xml-tag*
+                 :elements ()
+                 :inner-text (make-string-output-stream :element-type 'character)))
+
+(defun push-decl (attrs)
+  "Add attribute to the document declaration."
+  (dolist (attr attrs)
+    (push (apply #'make-attribute attr) (doc-decl *xml-doc*))))
+
+(defun push-stylesheet (attrs)
+  "Add attributes to the document stylesheet."
+  (dolist (attr attrs)
+    (push (apply #'make-attribute attr) (doc-stylesheets *xml-doc*))))
+
+(defun set-doctype (root &rest dtds)
+  "Set the xml document type for the current document."
+  (setf (doc-type *xml-doc*) (cons root dtds)))
+
+(defun push-entity (key value)
+  "Add another entity reference to the document."
+  (push (list key value) (doc-entities *xml-doc*)))
 
 (defun push-tag (name attrs &optional ns)
   "Set the current tag being parsed."
@@ -323,8 +342,10 @@
 
 (defun pop-tag (name &optional ns)
   "Shift from the parse stack to the current tag and validate."
-  (unless (string-equal name (tag-name *xml-tag*))
-    (error "Close tag <~@[~a:~]~a> does not match <~@[~a:~]~a>" ns name (tag-ns *xml-tag*) (tag-name *xml-tag*)))
+  (unless (and (string-equal name (element-name *xml-tag*))
+               (or (string-equal ns (element-ns *xml-tag*))
+                   (null ns)))
+    (error "Close tag ~@[~a:~]~a does not match ~a" ns name *xml-tag*))
 
   ;; fix up the current tag (inner text and elements)
   (with-slots (inner-text elements)
@@ -342,24 +363,17 @@
 
 (defun push-text (text)
   "Write text from the document to the inner text of the current tag."
-  (with-slots (inner-text)
-      *xml-tag*
-    (princ (replace-refs text) inner-text)))
+  (princ (replace-refs text) (tag-text *xml-tag*)))
 
-(defun push-entity (name)
-  "Write macro text from the document to the inner text of the current tag."
-  (let ((entity (assoc name (doc-entities *xml-doc*) :test #'string-equal)))
-    (if (null entity)
-        (error "Unknown entity ~s" name)
-      (push-text (second entity)))))
+(defun push-cdata (text)
+  "Write CDATA text to the inner text of the current tag."
+  (princ text (tag-text *xml-tag*)))
 
 (defun parse-xml (string &optional source)
   "Convert an XML string into a Lisp object."
-  (let* ((*xml-doc* (make-instance 'doc :source source))
-         (*xml-lexer* #'xml-lexer)
-         (*xml-tokens* (with-lexbuf (string source)
-                         (xml-parser #'(lambda ()
-                                         (funcall *xml-lexer*))))))
+  (let ((*xml-doc* (make-instance 'doc :source source))
+        (*xml-tokens* (with-lexbuf (string source)
+                        (parse #'xml-parser #'xml-lexer))))
 
     ;; build the document and tags
     (dolist (f *xml-tokens*)
@@ -373,8 +387,8 @@
 (defun parse-xml-file (pathname)
   "Read the contents of a file and parse it as XML."
   (with-open-file (f pathname)
-    (let ((s (make-string (file-length f))))
-      (read-sequence s f)
+    (let ((s (make-array (file-length f) :element-type 'character :fill-pointer t)))
+      (setf (fill-pointer s) (read-sequence s f))
       (parse-xml s pathname))))
 
 (defmethod query-xml ((tag tag) xpath)
@@ -383,7 +397,7 @@
              (destructuring-bind (name &rest rest)
                  xpath
                (let ((qs (loop :for e :in (tag-elements tag)
-                               :when (string-equal (tag-name e) name)
+                               :when (string-equal (element-name e) name)
                                :collect e)))
                  (if (null rest)
                      qs
@@ -396,8 +410,8 @@
 
 (defmethod get-attribute ((tag tag) name)
   "Search for an attribute in a tag."
-  (find name (tag-attributes tag) :key #'attrib-name :test #'string-equal))
+  (find name (tag-attributes tag) :key #'element-name :test #'string-equal))
 
 (defmethod get-attribute ((doc doc) name)
   "Search for an attribute in the XML declaration."
-  (find name (doc-decl doc) :key #'attrib-name :test #'string-equal))
+  (find name (doc-decl doc) :key #'element-name :test #'string-equal))
