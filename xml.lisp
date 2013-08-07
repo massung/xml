@@ -69,9 +69,10 @@
   "The parsed closures used to build the document.")
 
 (defconstant +xml-keywords+
-  '(("xml"     . :xml)
-    ("doctype" . :doctype)
-    ("entity"  . :entity)))
+  '(("xml"            . :xml)
+    ("xml-stylesheet" . :xml-stylesheet)
+    ("doctype"        . :doctype)
+    ("entity"         . :entity)))
 
 (defconstant +xml-entities+
   '(("quot" "\"")
@@ -81,11 +82,12 @@
     ("amp"  "&")))
 
 (defclass doc ()
-  ((decl       :initarg :decl     :accessor doc-decl :initform nil)
-   (source     :initarg :source   :accessor doc-source :initform nil)
-   (doctype    :initarg :types    :accessor doc-type :initform nil)
-   (entities   :initarg :entities :accessor doc-entities :initform +xml-entities+)
-   (root       :initarg :root     :accessor doc-root :initform nil))
+  ((decl        :initarg :decl        :accessor doc-decl        :initform nil)
+   (stylesheets :initarg :stylesheets :accessor doc-stylesheets :initform nil)
+   (source      :initarg :source      :accessor doc-source      :initform nil)
+   (doctype     :initarg :types       :accessor doc-type        :initform nil)
+   (entities    :initarg :entities    :accessor doc-entities    :initform +xml-entities+)
+   (root        :initarg :root        :accessor doc-root        :initform nil))
   (:documentation "XML prolog, entity macros, and root tag."))
 
 (defclass tag ()
@@ -196,18 +198,24 @@
      (error "Text outside root tag")))
 
   ;; prolog, entities, and root tag
-  ((xml decl doctype entities)
-   `(,$1 ,$2 ,@$3))
-  ((xml decl entities)
+  ((xml decl xml)
    `(,$1 ,@$2))
-  ((xml doctype entities)
+  ((xml stylesheet xml)
    `(,$1 ,@$2))
-  ((xml entities)
+  ((xml doctype xml)
+   `(,$1 ,@$2))
+  ((xml entity xml)
+   `(,$1 ,@$2))
+  ((xml tag)
    `(,@$1))
 
   ;; <?xml ...?>
   ((decl :lt :decl :xml attrs :decl :gt)
    (lambda () (setf (doc-decl *xml-doc*) $4)))
+
+  ;; <?xml-stylesheet ...?>
+  ((stylesheet :lt :decl :xml-stylesheet attrs :decl :gt)
+   (lambda () (push $4 (doc-stylesheets *xml-doc*))))
 
   ;; <!doctype ...>
   ((doctype :lt :bang :doctype :id :id :quot :quot :gt)
@@ -218,10 +226,8 @@
    (lambda () (setf (doc-type *xml-doc*) `(,$4))))
 
   ;; <!entity ...>
-  ((entities :lt :bang :entity :id :quot :gt entities)
-   `(,(lambda () (push `(,$4 ,$5) (doc-entities *xml-doc*))) ,@$7))
-  ((entities tag)
-   `(,@$1))
+  ((entity :lt :bang :entity :id :quot :gt)
+   (lambda () (push `(,$4 ,$5) (doc-entities *xml-doc*))))
 
   ;; <tag attributes... >
   ((tag :lt :id :ns :id attrs :end :gt)
@@ -283,7 +289,7 @@
                    (string (code-char n)))
                (let ((e (assoc ref (doc-entities *xml-doc*) :test #'string-equal)))
                  (if (null e)
-                     (error "Unknown entity reference ~s" ref)
+                     ref
                    (second e)))))))
     (replace-re #.(compile-re "&([^;]+);") #'deref string :all t)))
 
@@ -317,8 +323,8 @@
 
 (defun pop-tag (name &optional ns)
   "Shift from the parse stack to the current tag and validate."
-  (assert (and (string-equal name (tag-name *xml-tag*))
-               (string-equal ns (tag-ns *xml-tag*))))
+  (unless (string-equal name (tag-name *xml-tag*))
+    (error "Close tag <~@[~a:~]~a> does not match <~@[~a:~]~a>" ns name (tag-ns *xml-tag*) (tag-name *xml-tag*)))
 
   ;; fix up the current tag (inner text and elements)
   (with-slots (inner-text elements)
