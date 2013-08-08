@@ -21,7 +21,7 @@
   (require "parsergen"))
 
 (defpackage :xml
-  (:use :cl :parsergen :lexer)
+  (:use :cl :lw :parsergen :lexer)
   (:export
    #:parse-xml
    #:parse-xml-file
@@ -402,7 +402,7 @@
                  (if (null rest)
                      qs
                    (loop :for q :in qs :nconc (query q rest)))))))
-    (query tag (split-re #/\// xpath :all t :coalesce-seps t))))
+    (query tag (split-sequence "/" xpath :coalesce-separators t))))
 
 (defmethod query-xml ((doc doc) xpath)
   "Recursively descend into a document finding all child tags at a given path."
