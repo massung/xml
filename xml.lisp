@@ -28,9 +28,7 @@
 
    ;; element traversal
    #:query-xml
-
-   ;; attribute traversal
-   #:get-attribute
+   #:query-attribute
 
    ;; doc accessors
    #:doc-decl
@@ -62,18 +60,10 @@
   "The document being parsed currently.")
 (defvar *xml-root* nil
   "The root tag of the current document.")
-(defvar *xml-tag* nil
-  "The tag being parsed.")
 (defvar *xml-stack* nil
   "The stack of inner tags.")
-(defvar *xml-tokens* nil
-  "The parsed closures used to build the document.")
-
-(defconstant +xml-keywords+
-  '(("xml"            . :xml)
-    ("xml-stylesheet" . :xml-stylesheet)
-    ("doctype"        . :doctype)
-    ("entity"         . :entity)))
+(defvar *xml-tag* nil
+  "The tag being parsed.")
 
 (defconstant +xml-entities+
   '(("quot" "\"")
@@ -122,159 +112,188 @@
         e
       (format s "~@[~a:~]~a" ns name))))
 
-(deflexer xml-lexer (:case-fold t :multi-line t)
-  ("<!%-%-"             (prog1
-                            :next-token
-                          (comment-lexer)))
+(deflexer prolog-lexer (:case-fold t)
+  ("[%s%n]+"              (values :next-token))
 
-  ;; tag
-  ("<"                  (prog1
-                            :lt
-                          (setf *lexer* #'tag-lexer)))
+  ;; comments - just tokenize and skip
+  ("<!%-%-"               (prog1
+                              :next-token
+                            (comment-lexer)))
 
-  ;; inner text
-  ("[^<%s%n]+"          (values :text $$))
+  ;; prolog tags
+  ("<%?xml%s+"            (values :xml))
+  ("<%?xml-stylesheet%s+" (values :xml-stylesheet))
+  ("<!doctype%s+"         (values :doctype))
+  ("<!entity%s+"          (values :entity))
 
-  ;; whitespace is coalesced
-  ("[%s%n]+"            (values :text " ")))
+  ;; root tag
+  ("<"                    (push-lexer #'tag-lexer :tag))
+
+  ;; tag terminators
+  ("%?>"                  (values :decl-gt))
+  (">"                    (values :gt))
+
+  ;; identifiers
+  ("%a[%w%-_]*"           (values :id $$))
+
+  ;; attributes
+  ("="                    (values :eq))
+  (":"                    (values :ns))
+
+  ;; value quoting
+  ("\"([^\"]*)\""         (values :quot $1))
+  ("'([^']*)'"            (values :quot $1)))
 
 (deflexer comment-lexer ()
   ("%-%->[%s%n]*")
 
   ;; skip characters
-  ("."                  :next-token)
+  ("."                    (values :next-token))
 
-  ;; end of document
-  ("$"                  (error "Unterminated comment")))
+  ;; end of file
+  ("$"                    (error "Unterminated comment")))
 
-(deflexer cdata-lexer ()
-  ("%]%]>[%s%n]*"       (prog1
-                            :end-cdata
-                          (setf *lexer* #'xml-lexer)))
+(deflexer tag-lexer ()
+  ("/>[%s%n]*"            (pop-lexer :end-tag))
 
-  ;; any other character sequence
-  ("%]?[^%]]*"          (values :text $$))
+  ;; enter tag body
+  (">[%s%n]*"             (swap-lexer #'inner-xml-lexer :inner-xml))
 
-  ;; end of document
-  ("$"                  (error "Unterminated CDATA")))
+  ;; tokens
+  ("[%s%n]+"              (values :next-token))
+  ("="                    (values :eq))
+  (":"                    (values :ns))
 
-(deflexer tag-lexer (:case-fold t :multi-line t)
-  ("[%s%n]+"            :next-token)
-  ("/"                  :end)
-  ("%?"                 :decl)
-  ("!"                  :bang)
-  ("%-"                 :dash)
-  ("="                  :eq)
-  (":"                  :ns)
+  ;; identifiers
+  ("%a[%w%-_]*"           (values :id $$))
 
-  ;; character data
-  ("%[CDATA%["          (prog1
-                            :cdata
-                          (setf *lexer* #'cdata-lexer)))
+  ;; value quoting
+  ("\"([^\"]*)\""         (values :quot $1))
+  ("'([^']*)'"            (values :quot $1)))
+
+(deflexer inner-xml-lexer ()
+  ("<!%-%-"               (prog1
+                              :next-token
+                            (comment-lexer)))
 
   ;; tag terminal
-  (">[%s%n]*"           (prog1
-                            :gt
-                          (setf *lexer* #'xml-lexer)))
+  ("</(%a[%w%-_]*)%s*>"   (pop-lexer :close-tag $1))
 
-  ;; attribute quoting
-  ("\"([^\"]*)\""       (values :quot $1))
-  ("'([^']*)'"          (values :quot $1))
+  ;; cdata tag
+  ("<!%[CDATA%["          (push-lexer #'cdata-lexer :cdata))
 
-  ;; tag and attribute names
-  ("%a[%w%-_]*"         (let ((kw (assoc $$ +xml-keywords+ :test #'string-equal)))
-                          (if kw (cdr kw) (values :id $$)))))
+  ;; child tag
+  ("<"                    (push-lexer #'tag-lexer :tag))
+ 
+  ;; inner text and coalesced whitespace
+  ("[^<%s%n]+"            (values :text $$))
+  ("[%s%n]+"              (values :text " ")))
+
+(deflexer cdata-lexer ()
+  ("%]%]>[%s%n]*"         (pop-lexer :end-cdata))
+
+  ;; body
+  ("%]?[^%]]*"            (values :text $$))
+
+  ;; end of file
+  ("$"                    (error "Unterminated CDATA")))
 
 (defparser xml-parser
   ((start xml) $1)
 
-  ;; document
-  ((xml :text xml)
-   (if (string= $1 " ")
-       $2
-     (error "Text outside root tag")))
+  ;; declaration and prolog
+  ((xml decl prolog)
+   `(,$1 ,@$2))
 
-  ;; prolog, entities, and root tag
-  ((xml decl xml)
-   `(,$1 ,@$2))
-  ((xml stylesheet xml)
-   `(,$1 ,@$2))
-  ((xml doctype xml)
-   `(,$1 ,@$2))
-  ((xml entity xml)
-   `(,$1 ,@$2))
-  ((xml tag)
-   `(,@$1))
+  ;; xml stylesheets, doctype, entities
+  ((xml prolog) $1)
 
-  ;; <?xml ...?>
-  ((decl :lt :decl :xml attrs :decl :gt)
-   (lambda () (push-decl $4)))
+  ;; <?xml ... ?>
+  ((decl :xml attrs :decl-gt)
+   (lambda () (push-decl $2)))
 
-  ;; <?xml-stylesheet ...?>
-  ((stylesheet :lt :decl :xml-stylesheet attrs :decl :gt)
-   (lambda () (push-stylesheet $4)))
+  ;; stylesheets, doctypes, and entities tags
+  ((prolog stylesheet prolog)
+   `(,$1 ,@$2))
+  ((prolog doctype prolog)
+   `(,$1 ,@$2))
+  ((prolog entity prolog)
+   `(,$1 ,@$2))
+
+  ;; root element
+  ((prolog :tag tag) $2)
+
+  ;; illegal xml
+  ((prolog :error)
+   (error "Illegal prolog"))
+
+  ;; <?xml-stylesheet ... ?>
+  ((stylesheet :xml-stylesheet attrs :decl-gt)
+   (lambda () (push-stylesheet $2)))
 
   ;; <!doctype ...>
-  ((doctype :lt :bang :doctype :id :id :quot :quot :gt)
-   (lambda () (set-doctype $4 $5 $6 $7)))
-  ((doctype :lt :bang :doctype :id :id :quot :gt)
-   (lambda () (set-doctype $4 $5 $6)))
-  ((doctype :lt :bang :doctype :id)
-   (lambda () (set-doctype $4)))
+  ((doctype :doctype :id :id :quot :quot)
+   (lambda () (set-doctype $2 $3 $4 $5)))
+  ((doctype :doctype :id :id :quot)
+   (lambda () (set-doctype $2 $3 $4)))
+  ((doctype :doctype :id)
+   (lambda () (set-doctype $2)))
 
-  ;; <!entity ...>
-  ((entity :lt :bang :entity :id :quot :gt)
-   (lambda () (push-entity $4 $5)))
+  ;; <!entity id "value">
+  ((entity :entity :id :quot)
+   (lambda () (push-entity $2 $3)))
 
-  ;; <tag attributes .../>
-  ((tag :lt :id :ns :id attrs :end :gt)
-   `(,(lambda () (append-tag $4 $5 $2))))
-  ((tag :lt :id attrs :end :gt)
-   `(,(lambda () (append-tag $2 $3))))
+  ;; tags with child elements
+  ((tag :id :ns :id attrs :inner-xml inner-xml)
+   `(,(lambda () (push-tag $3 $4 $1)) ,@$6))
+  ((tag :id attrs :inner-xml inner-xml)
+   `(,(lambda () (push-tag $1 $2)) ,@$4))
 
-  ;; <tag attributes ...>
-  ((tag :lt :id :ns :id attrs :gt inner-xml)
-   `(,(lambda () (push-tag $4 $5 $2)) ,@$7))
-  ((tag :lt :id attrs :gt inner-xml)
-   `(,(lambda () (push-tag $2 $3)) ,@$5))
+  ;; tags without child elements
+  ((tag :id :ns :id attrs :end-tag)
+   `(,(lambda () (append-tag $3 $4 $1))))
+  ((tag :id attrs :end-tag)
+   `(,(lambda () (append-tag $1 $2))))
 
-  ;; tag error
+  ;; illegal xml
   ((tag :error)
-   (error "Illegal XML"))
+   (error "Malformed tag"))
 
-  ;; inner text
-  ((inner-xml :text inner-xml)
-   `(,(lambda () (push-text $1)) ,@$2))
-
-  ;; child tags
-  ((inner-xml :lt :end :id :ns :id :gt)
-   `(,(lambda () (pop-tag $5 $3))))
-  ((inner-xml :lt :end :id :gt)
-   `(,(lambda () (pop-tag $3))))
-  ((inner-xml tag inner-xml)
-   `(,@$1 ,@$2))
-
-  ;; character data
-  ((inner-xml :lt :bang :cdata cdata inner-xml)
-   `(,@$4 ,@$5))
-
-  ;; block of binary character data
-  ((cdata :text cdata)
-   `(,(lambda () (push-cdata $1)) ,@$2))
-  ((cdata :end-cdata)
-   `())
-
-  ;; inner-tag attributes
+  ;; attribute list
   ((attrs attr attrs)
    `(,$1 ,@$2))
   ((attrs)
    `())
 
-  ;; single attribute
+  ;; attribute
   ((attr :id :ns :id :eq :quot)
-   `(,$3 ,$5 ,$1))
+   `(,$3 ,$5))
   ((attr :id :eq :quot)
-   `(,$1 ,$3)))
+   `(,$1 ,$3))
+
+  ;; inner xml
+  ((inner-xml element inner-xml)
+   `(,@$1 ,@$2))
+  ((inner-xml :close-tag)
+   `(,(lambda () (pop-tag $1))))
+
+  ;; child tags
+  ((element :tag tag) $2)
+  ((element :cdata cdata) $2)
+
+  ;; inner text
+  ((element :text)
+   `(,(lambda () (push-text $1))))
+
+  ;; character data
+  ((cdata :text cdata)
+   `(,(lambda () (push-text $1 :cdata t)) ,@$2))
+  ((cdata :end-cdata)
+   `())
+
+  ;; unknown
+  ((element :error)
+   (error "Invalid XML")))
 
 (defun replace-refs (string)
   "Replace all &ref; references with their counterparts."
@@ -322,13 +341,13 @@
   (dolist (attr attrs)
     (push (apply #'make-attribute attr) (doc-stylesheets *xml-doc*))))
 
-(defun set-doctype (root &rest dtds)
-  "Set the xml document type for the current document."
-  (setf (doc-type *xml-doc*) (cons root dtds)))
-
 (defun push-entity (key value)
   "Add another entity reference to the document."
   (push (list key value) (doc-entities *xml-doc*)))
+
+(defun set-doctype (root &rest dtds)
+  "Set the xml document type for the current document."
+  (setf (doc-type *xml-doc*) (cons root dtds)))
 
 (defun push-tag (name attrs &optional ns)
   "Set the current tag being parsed."
@@ -361,23 +380,19 @@
   (push-tag name attrs ns)
   (pop-tag name))
 
-(defun push-text (text)
+(defun push-text (text &key cdata)
   "Write text from the document to the inner text of the current tag."
-  (princ (replace-refs text) (tag-text *xml-tag*)))
-
-(defun push-cdata (text)
-  "Write CDATA text to the inner text of the current tag."
-  (princ text (tag-text *xml-tag*)))
+  (princ (if cdata text (replace-refs text)) (tag-text *xml-tag*)))
 
 (defun parse-xml (string &optional source)
   "Convert an XML string into a Lisp object."
   (let ((*xml-doc* (make-instance 'doc :source source))
-        (*xml-tokens* (with-lexbuf (string source)
-                        (parse #'xml-parser #'xml-lexer))))
+        (*xml-tag*))
 
     ;; build the document and tags
-    (dolist (f *xml-tokens*)
-      (funcall f))
+    (let ((doc (parse #'xml-parser (tokenize #'prolog-lexer string source))))
+      (dolist (f doc)
+        (funcall f)))
 
     ;; complete the document and return the root element
     (prog1
@@ -386,10 +401,7 @@
 
 (defun parse-xml-file (pathname)
   "Read the contents of a file and parse it as XML."
-  (with-open-file (f pathname)
-    (let ((s (make-array (file-length f) :element-type 'character :fill-pointer t)))
-      (setf (fill-pointer s) (read-sequence s f))
-      (parse-xml s pathname))))
+  (parse-xml (slurp pathname) pathname))
 
 (defmethod query-xml ((tag tag) xpath)
   "Recursively descend into a tag finding child tags with a given path."
@@ -408,10 +420,10 @@
   "Recursively descend into a document finding all child tags at a given path."
   (query-xml (make-instance 'tag :elements (list (doc-root doc))) xpath))
 
-(defmethod get-attribute ((tag tag) name)
+(defmethod query-attribute ((tag tag) name)
   "Search for an attribute in a tag."
   (find name (tag-attributes tag) :key #'element-name :test #'string-equal))
 
-(defmethod get-attribute ((doc doc) name)
+(defmethod query-attribute ((doc doc) name)
   "Search for an attribute in the XML declaration."
   (find name (doc-decl doc) :key #'element-name :test #'string-equal))
