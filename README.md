@@ -16,7 +16,7 @@ Once `xml.lisp` has been loaded (it is recommended to use [`defsystem`](http://w
 	CL-USER > (parse-xml "<!entity who \"world\"><say>Hello, &who;!</say>")
 	<XML::DOC say>
 
-	CL-USER > (tag-text (doc-root *))
+	CL-USER > (element-value (doc-root *))
 	"Hello, world!"
 
 	CL-USER > (parse-xml-file #p"test/rss.xml")
@@ -29,42 +29,43 @@ Once `xml.lisp` has been loaded (it is recommended to use [`defsystem`](http://w
 
 The `XML` package is pretty sparse by design. There are a couple functions for parsing from a source file or string, and searching a document for elements using an xpath. All other methods exposed are accessors in the `doc` or `tag` classes.
 
-### Parsing Methods
+## Parsing Methods
 
-	(parse-xml string)        ;=> doc
-	(parse-xml-file pathname) ;=> doc
+	(parse-xml string)          ;=> doc
+	(parse-xml-file pathname)   ;=> doc
 
-### Traverse/Query Methods
+## Traverse/Query Methods
 
-	(query-xml tag xpath)     ;=> list
-	(query-xml doc xpath)     ;=> list
+	(query-xml tag xpath)       ;=> list
+	(query-xml doc xpath)       ;=> list
 
-	(get-attribute tag name)  ;=> attribute
-	(get-attribute doc name)  ;=> attribute
+	(query-attribute tag name)  ;=> attribute
+	(query-attribute doc name)  ;=> attribute
 
-### Document Accessors
+## Document Accessors
 
-	(doc-type doc)            ;=> list
-	(doc-source doc)          ;=> pathname
-	(doc-decl doc)            ;=> attributes
-	(doc-entities doc)        ;=> list
-	(doc-root doc)            ;=> tag
+	(doc-type doc)              ;=> list
+	(doc-source doc)            ;=> pathname
+	(doc-decl doc)              ;=> attributes
+	(doc-entities doc)          ;=> list
+	(doc-root doc)              ;=> tag
 
-### Tag Accessors
+## Element Accessors
 
-	(tag-doc tag)             ;=> doc
-	(tag-name tag)            ;=> string
-	(tag-ns tag)              ;=> string
-	(tag-parent tag)          ;=> tag
-	(tag-attributes tag)      ;=> list
-	(tag-elements tag)        ;=> list
-	(tag-text tag)            ;=> string
+	(element-name element)      ;=> string
+	(element-ns element)        ;=> string
+	(element-doc element)       ;=> doc
 
-### Attribute Accessors
+### Tag Accessors (subclass of `element`)
 
-	(attrib-name attribute)   ;=> string
-	(attrib-ns attribute)     ;=> string
-	(attrib-value attribute)  ;=> string
+	(element-parent tag)        ;=> tag
+	(element-attributes tag)    ;=> list
+	(element-children tag)      ;=> list
+	(element-value tag)         ;=> string
+
+### Attribute Accessors (subclass of `element`)
+
+	(element-value attribute)   ;=> string
 
 # How It Works
 
@@ -74,11 +75,10 @@ As the tokens are parsed, the lexer may end up switching the `*XML-LEXER*` globa
 
 The parser reduces the tokens into a list of closures that - after being successfully parsed - will be called in order. This part can be thought of as if it were a SAX parser: pushing tags, writing inner text, popping tags, etc. These functions make use of the following special variables:
 
-* `*XML-LEXER*` is the current lexical state function.
 * `*XML-DOC*` is the top-level document.
 * `*XML-ROOT*` is the root tag.
-* `*XML-TAG*` is the current tag being parsed.
-* `*XML-STACK*` is the stack of tags being parsed.
+* `*XML-STACK*` is the stack of tags being created.
+* `*XML-TAG*` is the current tag being created.
 
 Once parsed, a new `*XML-DOC*` is created and the first set of closures executed will set the `doc-decl` attributes, `doc-type` DOCTYPE, and `doc-entities` ENTITIES.
 

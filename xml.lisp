@@ -42,17 +42,10 @@
    #:element-name
    #:element-ns
    #:element-doc
-
-   ;; tag accessors
-   #:tag-parent
-   #:tag-attributes
-   #:tag-text
-   #:tag-elements
-
-   ;; attribute accessors
-   #:attrib-name
-   #:attrib-ns
-   #:attrib-value))
+   #:element-parent
+   #:element-attributes
+   #:element-value
+   #:element-children))
 
 (in-package :xml)
 
@@ -88,14 +81,14 @@
   (:documentation "All tags and attributes are elements."))
 
 (defclass tag (element)
-  ((parent     :initarg :parent     :accessor tag-parent)
-   (attributes :initarg :attributes :accessor tag-attributes)
-   (inner-text :initarg :inner-text :accessor tag-text)
-   (elements   :initarg :elements   :accessor tag-elements))
+  ((parent     :initarg :parent     :accessor element-parent)
+   (attributes :initarg :attributes :accessor element-attributes)
+   (inner-text :initarg :inner-text :accessor element-value)
+   (children   :initarg :children   :accessor element-children))
   (:documentation "Attributes, name, inner text, and child tags."))
 
 (defclass attribute (element)
-  ((value      :initarg :value :accessor attrib-value :initform nil))
+  ((value      :initarg :value :accessor element-value :initform nil))
   (:documentation "A single attribute of a tag."))
 
 (defmethod print-object ((doc doc) s)
@@ -232,15 +225,15 @@
    (lambda () (push-stylesheet $2)))
 
   ;; <!doctype ...>
-  ((doctype :doctype :id :id :quot :quot)
+  ((doctype :doctype :id :id :quot :quot :gt)
    (lambda () (set-doctype $2 $3 $4 $5)))
-  ((doctype :doctype :id :id :quot)
+  ((doctype :doctype :id :id :quot :gt)
    (lambda () (set-doctype $2 $3 $4)))
-  ((doctype :doctype :id)
+  ((doctype :doctype :id :gt)
    (lambda () (set-doctype $2)))
 
   ;; <!entity id "value">
-  ((entity :entity :id :quot)
+  ((entity :entity :id :quot :gt)
    (lambda () (push-entity $2 $3)))
 
   ;; tags with child elements
@@ -328,7 +321,7 @@
                  :attributes (loop :for a :in attrs :collect (apply #'make-attribute a))
                  :doc *xml-doc*
                  :parent *xml-tag*
-                 :elements ()
+                 :children ()
                  :inner-text (make-string-output-stream :element-type 'character)))
 
 (defun push-decl (attrs)
@@ -353,7 +346,7 @@
   "Set the current tag being parsed."
   (let ((tag (make-tag name attrs ns)))
     (when *xml-tag*
-      (push tag (tag-elements *xml-tag*)))
+      (push tag (element-children *xml-tag*)))
     (push *xml-tag* *xml-stack*)
 
     ;; create a new tag to house child and text elements
@@ -362,15 +355,15 @@
 (defun pop-tag (name &optional ns)
   "Shift from the parse stack to the current tag and validate."
   (unless (and (string-equal name (element-name *xml-tag*))
-               (or (string-equal ns (element-ns *xml-tag*))
-                   (null ns)))
+               (or (null ns)
+                   (string-equal ns (element-ns *xml-tag*))))
     (error "Close tag ~@[~a:~]~a does not match ~a" ns name *xml-tag*))
 
   ;; fix up the current tag (inner text and elements)
-  (with-slots (inner-text elements)
+  (with-slots (inner-text children)
       *xml-tag*
     (setf inner-text (get-output-stream-string inner-text)
-          elements (reverse elements)))
+          children (reverse children)))
 
   ;; set the root element and pop the top stack item
   (setf *xml-root* *xml-tag* *xml-tag* (pop *xml-stack*)))
@@ -382,7 +375,7 @@
 
 (defun push-text (text &key cdata)
   "Write text from the document to the inner text of the current tag."
-  (princ (if cdata text (replace-refs text)) (tag-text *xml-tag*)))
+  (princ (if cdata text (replace-refs text)) (element-value *xml-tag*)))
 
 (defun parse-xml (string &optional source)
   "Convert an XML string into a Lisp object."
@@ -418,11 +411,11 @@
 
 (defmethod query-xml ((doc doc) xpath)
   "Recursively descend into a document finding all child tags at a given path."
-  (query-xml (make-instance 'tag :elements (list (doc-root doc))) xpath))
+  (query-xml (make-instance 'tag :children (list (doc-root doc))) xpath))
 
 (defmethod query-attribute ((tag tag) name)
   "Search for an attribute in a tag."
-  (find name (tag-attributes tag) :key #'element-name :test #'string-equal))
+  (find name (element-attributes tag) :key #'element-name :test #'string-equal))
 
 (defmethod query-attribute ((doc doc) name)
   "Search for an attribute in the XML declaration."
