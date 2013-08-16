@@ -401,7 +401,7 @@
   (labels ((query (tag xpath)
              (destructuring-bind (name &rest rest)
                  xpath
-               (let ((qs (loop :for e :in (tag-elements tag)
+               (let ((qs (loop :for e :in (element-children tag)
                                :when (string-equal (element-name e) name)
                                :collect e)))
                  (if (null rest)
