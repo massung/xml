@@ -170,7 +170,7 @@
                             (comment-lexer)))
 
   ;; tag terminal
-  ("</(%a[%w%-_]*)%s*>"   (pop-lexer :close-tag $1))
+  ("</"                   (swap-lexer #'close-tag-lexer :close-tag))
 
   ;; cdata tag
   ("<!%[CDATA%["          (push-lexer #'cdata-lexer :cdata))
@@ -181,6 +181,14 @@
   ;; inner text and coalesced whitespace
   ("[^<%s%n]+"            (values :text $$))
   ("[%s%n]+"              (values :text " ")))
+
+(deflexer close-tag-lexer ()
+  ("[%s%n]+"              (values :next-token))
+  ("%a[%w%-_]*"           (values :id $$))
+  (":"                    (values :ns))
+
+  ;; finish the tag
+  (">[%s%n]*"             (pop-lexer :end-tag)))
 
 (deflexer cdata-lexer ()
   ("%]%]>[%s%n]*"         (pop-lexer :end-cdata))
@@ -267,8 +275,12 @@
   ;; inner xml
   ((inner-xml element inner-xml)
    `(,@$1 ,@$2))
-  ((inner-xml :close-tag)
-   `(,(lambda () (pop-tag $1))))
+
+  ;; close tags
+  ((inner-xml :close-tag :id :end-tag)
+   `(,(lambda () (pop-tag $2))))
+  ((inner-xml :close-tag :id :ns :id :end-tag)
+   `(,(lambda () (pop-tag $4 $2))))
 
   ;; child tags
   ((element :tag tag) $2)
