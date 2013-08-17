@@ -106,107 +106,104 @@
       (format s "~@[~a:~]~a" ns name))))
 
 (deflexer prolog-lexer (:case-fold t)
-  ("[%s%n]+"              (values :next-token))
+  ("[%s%n]+"               (values :next-token))
 
   ;; comments - just tokenize and skip
-  ("<!%-%-"               (prog1
-                              :next-token
-                            (comment-lexer)))
+  ("<!%-%-"                (prog1
+                               :next-token
+                             (comment-lexer)))
 
   ;; prolog tags
-  ("<%?xml%s+"            (values :xml))
-  ("<%?xml-stylesheet%s+" (values :xml-stylesheet))
-  ("<!doctype%s+"         (values :doctype))
-  ("<!entity%s+"          (values :entity))
+  ("<%?xml%s+"             (values :xml))
+  ("<%?xml%-stylesheet%s+" (values :xml-stylesheet))
+  ("<!doctype%s+"          (values :doctype))
+  ("<!entity%s+"           (values :entity))
 
   ;; root tag
-  ("<"                    (push-lexer #'tag-lexer :tag))
+  ("<"                     (push-lexer #'tag-lexer :tag))
 
   ;; tag terminators
-  ("%?>"                  (values :decl-gt))
-  (">"                    (values :gt))
+  ("%?>"                   (values :decl-gt))
+  (">"                     (values :gt))
 
   ;; identifiers
-  ("%a[%w%-_]*"           (values :id $$))
+  ("%a[%w%-_]*"            (values :id $$))
 
   ;; attributes
-  ("="                    (values :eq))
-  (":"                    (values :ns))
+  ("="                     (values :eq))
+  (":"                     (values :ns))
 
   ;; value quoting
-  ("\"([^\"]*)\""         (values :quot $1))
-  ("'([^']*)'"            (values :quot $1)))
+  ("\"([^\"]*)\""          (values :quot $1))
+  ("'([^']*)'"             (values :quot $1)))
 
 (deflexer comment-lexer ()
   ("%-%->[%s%n]*")
 
   ;; skip characters
-  ("."                    (values :next-token))
+  ("."                     (values :next-token))
 
   ;; end of file
-  ("$"                    (error "Unterminated comment")))
+  ("$"                     (error "Unterminated comment")))
 
 (deflexer tag-lexer ()
-  ("/>[%s%n]*"            (pop-lexer :end-tag))
+  ("/>[%s%n]*"             (pop-lexer :end-tag))
 
   ;; enter tag body
-  (">[%s%n]*"             (swap-lexer #'inner-xml-lexer :inner-xml))
+  (">[%s%n]*"              (swap-lexer #'inner-xml-lexer :inner-xml))
 
   ;; tokens
-  ("[%s%n]+"              (values :next-token))
-  ("="                    (values :eq))
-  (":"                    (values :ns))
+  ("[%s%n]+"               (values :next-token))
+  ("="                     (values :eq))
+  (":"                     (values :ns))
 
   ;; identifiers
-  ("%a[%w%-_]*"           (values :id $$))
+  ("%a[%w%-_]*"            (values :id $$))
 
   ;; value quoting
-  ("\"([^\"]*)\""         (values :quot $1))
-  ("'([^']*)'"            (values :quot $1)))
+  ("\"([^\"]*)\""          (values :quot $1))
+  ("'([^']*)'"             (values :quot $1)))
 
 (deflexer inner-xml-lexer ()
-  ("<!%-%-"               (prog1
-                              :next-token
-                            (comment-lexer)))
+  ("<!%-%-"                (prog1
+                               :next-token
+                             (comment-lexer)))
 
   ;; tag terminal
-  ("</"                   (swap-lexer #'close-tag-lexer :close-tag))
+  ("</"                    (swap-lexer #'close-tag-lexer :close-tag))
 
   ;; cdata tag
-  ("<!%[CDATA%["          (push-lexer #'cdata-lexer :cdata))
+  ("<!%[CDATA%["           (push-lexer #'cdata-lexer :cdata))
 
   ;; child tag
-  ("<"                    (push-lexer #'tag-lexer :tag))
+  ("<"                     (push-lexer #'tag-lexer :tag))
  
   ;; inner text and coalesced whitespace
-  ("[^<%s%n]+"            (values :text $$))
-  ("[%s%n]+"              (values :text " ")))
+  ("[^<%s%n]+"             (values :text $$))
+  ("[%s%n]+"               (values :text " ")))
 
 (deflexer close-tag-lexer ()
-  ("[%s%n]+"              (values :next-token))
-  ("%a[%w%-_]*"           (values :id $$))
-  (":"                    (values :ns))
+  ("[%s%n]+"               (values :next-token))
+  ("%a[%w%-_]*"            (values :id $$))
+  (":"                     (values :ns))
 
   ;; finish the tag
-  (">[%s%n]*"             (pop-lexer :end-tag)))
+  (">[%s%n]*"              (pop-lexer :end-tag)))
 
 (deflexer cdata-lexer ()
-  ("%]%]>[%s%n]*"         (pop-lexer :end-cdata))
+  ("%]%]>[%s%n]*"          (pop-lexer :end-cdata))
 
   ;; body
-  ("%]?[^%]]*"            (values :text $$))
+  ("%]?[^%]]*"             (values :text $$))
 
   ;; end of file
-  ("$"                    (error "Unterminated CDATA")))
+  ("$"                     (error "Unterminated CDATA")))
 
 (defparser xml-parser
   ((start xml) $1)
 
   ;; declaration and prolog
-  ((xml decl prolog)
-   `(,$1 ,@$2))
-
-  ;; xml stylesheets, doctype, entities
+  ((xml decl prolog) `(,$1 ,@$2))
   ((xml prolog) $1)
 
   ;; <?xml ... ?>
@@ -226,7 +223,7 @@
 
   ;; illegal xml
   ((prolog :error)
-   (error "Illegal prolog"))
+   (error "No root tag"))
 
   ;; <?xml-stylesheet ... ?>
   ((stylesheet :xml-stylesheet attrs :decl-gt)
