@@ -21,7 +21,7 @@
   (require "parsergen"))
 
 (defpackage :xml
-  (:use :cl :lw :parsergen :lexer)
+  (:use :cl :lw :parsergen :re :lexer)
   (:export
    #:parse-xml
    #:parse-xml-file
@@ -105,7 +105,7 @@
         e
       (format s "~@[~a:~]~a" ns name))))
 
-(deflexer prolog-lexer (:case-fold t)
+(deflexer prolog-lexer
   ("[%s%n]+"               (values :next-token))
 
   ;; comments - just tokenize and skip
@@ -116,8 +116,8 @@
   ;; prolog tags
   ("<%?xml%s+"             (values :xml))
   ("<%?xml%-stylesheet%s+" (values :xml-stylesheet))
-  ("<!doctype%s+"          (values :doctype))
-  ("<!entity%s+"           (values :entity))
+  ("<!DOCTYPE%s+"          (values :doctype))
+  ("<!ENTITY%s+"           (values :entity))
 
   ;; root tag
   ("<"                     (push-lexer #'tag-lexer :tag))
@@ -137,7 +137,7 @@
   ("\"([^\"]*)\""          (values :quot $1))
   ("'([^']*)'"             (values :quot $1)))
 
-(deflexer comment-lexer ()
+(deflexer comment-lexer
   ("%-%->[%s%n]*")
 
   ;; skip characters
@@ -146,7 +146,7 @@
   ;; end of file
   ("$"                     (error "Unterminated comment")))
 
-(deflexer tag-lexer ()
+(deflexer tag-lexer
   ("/>[%s%n]*"             (pop-lexer :end-tag))
 
   ;; enter tag body
@@ -164,7 +164,7 @@
   ("\"([^\"]*)\""          (values :quot $1))
   ("'([^']*)'"             (values :quot $1)))
 
-(deflexer inner-xml-lexer ()
+(deflexer inner-xml-lexer
   ("<!%-%-"                (prog1
                                :next-token
                              (comment-lexer)))
@@ -182,7 +182,7 @@
   ("[^<%s%n]+"             (values :text $$))
   ("[%s%n]+"               (values :text " ")))
 
-(deflexer close-tag-lexer ()
+(deflexer close-tag-lexer
   ("[%s%n]+"               (values :next-token))
   ("%a[%w%-_]*"            (values :id $$))
   (":"                     (values :ns))
@@ -190,7 +190,7 @@
   ;; finish the tag
   (">[%s%n]*"              (pop-lexer :end-tag)))
 
-(deflexer cdata-lexer ()
+(deflexer cdata-lexer
   ("%]%]>"                 (pop-lexer :end-cdata))
 
   ;; body
@@ -300,7 +300,7 @@
 (defun replace-refs (string)
   "Replace all &ref; references with their counterparts."
   (flet ((deref (m)
-           (let ((ref (first (match-captures m))))
+           (let ((ref (first (match-groups m))))
              (if (char= (char ref 0) #\#)
                  (let ((n (if (char-equal (char ref 1) #\x)
                               (parse-integer (subseq ref 2) :radix 16)
