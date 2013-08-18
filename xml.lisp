@@ -191,7 +191,7 @@
   (">[%s%n]*"              (pop-lexer :end-tag)))
 
 (deflexer cdata-lexer ()
-  ("%]%]>[%s%n]*"          (pop-lexer :end-cdata))
+  ("%]%]>"                 (pop-lexer :end-cdata))
 
   ;; body
   ("%]?[^%]]*"             (values :text $$))
