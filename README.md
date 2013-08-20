@@ -15,7 +15,7 @@ Once `xml.lisp` has been loaded you should be able to immediately begin parsing 
 	CL-USER > (parse-xml "<!ENTITY who \"world\"><say>Hello, &who;!</say>")
 	<XML::DOC say>
 
-	CL-USER > (element-value (doc-root *))
+	CL-USER > (node-value (doc-root *))
 	"Hello, world!"
 
 	CL-USER > (parse-xml-file #p"test/rss.xml")
@@ -28,7 +28,7 @@ Once `xml.lisp` has been loaded you should be able to immediately begin parsing 
 
 # Exported Methods
 
-The `XML` package is pretty sparse by design. There are a couple functions for parsing from a source file or string, and searching a document for elements using an xpath. All other methods exposed are accessors in the `doc` or `tag` classes.
+The `XML` package is pretty sparse by design. There are a couple functions for parsing from a source file or string, and searching a document for tags using an xpath. All other methods exposed are accessors in the `doc` or `tag` classes.
 
 ### Parsing Methods
 
@@ -51,22 +51,22 @@ The `XML` package is pretty sparse by design. There are a couple functions for p
 	(doc-entities doc)          ;=> list
 	(doc-root doc)              ;=> tag
 
-### Element Accessors
+### Node Accessors
 
-	(element-name element)      ;=> string
-	(element-ns element)        ;=> string
-	(element-doc element)       ;=> doc
+	(node-name node)            ;=> string
+	(node-ns node)              ;=> string
+	(node-doc node)             ;=> doc
 
-#### Tag Accessors (subclass of `element`)
+#### Tag Accessors (subclass of `node`)
 
-	(element-parent tag)        ;=> tag
-	(element-attributes tag)    ;=> list
-	(element-children tag)      ;=> list
-	(element-value tag)         ;=> string
+	(node-parent tag)           ;=> tag
+	(node-attributes tag)       ;=> attributes
+	(node-elements tag)         ;=> tags
+	(node-value tag)            ;=> string
 
-#### Attribute Accessors (subclass of `element`)
+#### Attribute Accessors (subclass of `node`)
 
-	(element-value attribute)   ;=> string
+	(node-value attribute)   ;=> string
 
 # How It Works
 
@@ -83,9 +83,9 @@ Once parsed, a new `*XML-DOC*` is created and the first set of closures executed
 
 When a new tag is found, the current `*xml-tag*` is pushed onto the `*xml-stack*` and a new tag is created with the current `*xml-tag*` as its parent. The `inner-text` property of the new tag is a string output stream. As text is found, it is written to the stream.
 
-As tags are closed, they are first validated and then pushed onto the `tag-elements` property of their parent tag. The `inner-text` stream is then flushed for its text and `*xml-root*` is set to `*xml-tag*`. Finally, `*xml-stack*` is popped into `*xml-tag*` and generation of the XML document tree continues.
+As tags are closed, they are first validated and then pushed onto the `node-elements` property of their parent tag. The `inner-text` stream is then flushed for its text and `*xml-root*` is set to `*xml-tag*`. Finally, `*xml-stack*` is popped into `*xml-tag*` and generation of the XML document tree continues.
 
-This continues until there are no more closures to execute, at which time `*xml-doc*` is complete and `*xml-root*` should be the top-level element of the document. 
+This continues until there are no more closures to execute, at which time `*xml-doc*` is complete and `*xml-root*` should be the top-level node of the document. 
 
 # Feedback
 

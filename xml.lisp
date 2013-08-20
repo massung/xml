@@ -38,14 +38,14 @@
    #:doc-entities
    #:doc-root
 
-   ;; element accessors
-   #:element-name
-   #:element-ns
-   #:element-doc
-   #:element-parent
-   #:element-attributes
-   #:element-value
-   #:element-children))
+   ;; xml node accessors
+   #:node-name
+   #:node-ns
+   #:node-doc
+   #:node-parent
+   #:node-attributes
+   #:node-value
+   #:node-elements))
 
 (in-package :xml)
 
@@ -74,21 +74,21 @@
    (root        :initarg :root        :accessor doc-root        :initform nil))
   (:documentation "XML prolog, entity macros, and root tag."))
 
-(defclass element ()
-  ((name :initarg :name :accessor element-name)
-   (ns   :initarg :ns   :accessor element-ns)
-   (doc  :initarg :doc  :accessor element-doc))
-  (:documentation "All tags and attributes are elements."))
+(defclass node ()
+  ((name :initarg :name :accessor node-name)
+   (ns   :initarg :ns   :accessor node-ns)
+   (doc  :initarg :doc  :accessor node-doc))
+  (:documentation "All tags and attributes are node elements."))
 
-(defclass tag (element)
-  ((parent     :initarg :parent     :accessor element-parent)
-   (attributes :initarg :attributes :accessor element-attributes)
-   (inner-text :initarg :inner-text :accessor element-value)
-   (children   :initarg :children   :accessor element-children))
+(defclass tag (node)
+  ((parent     :initarg :parent     :accessor node-parent)
+   (attributes :initarg :attributes :accessor node-attributes)
+   (inner-text :initarg :inner-text :accessor node-value)
+   (elements   :initarg :elements   :accessor node-elements))
   (:documentation "Attributes, name, inner text, and child tags."))
 
-(defclass attribute (element)
-  ((value      :initarg :value :accessor element-value :initform nil))
+(defclass attribute (node)
+  ((value :initarg :value :accessor node-value :initform nil))
   (:documentation "A single attribute of a tag."))
 
 (defmethod print-object ((doc doc) s)
@@ -98,11 +98,11 @@
         (doc-root doc)
       (format s "~@[~a:~]~a" ns name))))
 
-(defmethod print-object ((e element) s)
+(defmethod print-object ((node node) s)
   "Output an element to a stream."
-  (print-unreadable-object (e s :type t)
+  (print-unreadable-object (node s :type t)
     (with-slots (ns name)
-        e
+        node
       (format s "~@[~a:~]~a" ns name))))
 
 (deflexer prolog-lexer
@@ -330,7 +330,7 @@
                  :attributes (loop :for a :in attrs :collect (apply #'make-attribute a))
                  :doc *xml-doc*
                  :parent *xml-tag*
-                 :children ()
+                 :elements ()
                  :inner-text (make-string-output-stream :element-type 'character)))
 
 (defun push-decl (attrs)
@@ -355,7 +355,7 @@
   "Set the current tag being parsed."
   (let ((tag (make-tag name attrs ns)))
     (when *xml-tag*
-      (push tag (element-children *xml-tag*)))
+      (push tag (node-elements *xml-tag*)))
     (push *xml-tag* *xml-stack*)
 
     ;; create a new tag to house child and text elements
@@ -363,16 +363,16 @@
 
 (defun pop-tag (name &optional ns)
   "Shift from the parse stack to the current tag and validate."
-  (unless (and (string-equal name (element-name *xml-tag*))
+  (unless (and (string-equal name (node-name *xml-tag*))
                (or (null ns)
-                   (string-equal ns (element-ns *xml-tag*))))
+                   (string-equal ns (node-ns *xml-tag*))))
     (error "Close tag ~@[~a:~]~a does not match ~a" ns name *xml-tag*))
 
   ;; fix up the current tag (inner text and elements)
-  (with-slots (inner-text children)
+  (with-slots (inner-text elements)
       *xml-tag*
     (setf inner-text (get-output-stream-string inner-text)
-          children (reverse children)))
+          elements (reverse elements)))
 
   ;; set the root element and pop the top stack item
   (setf *xml-root* *xml-tag* *xml-tag* (pop *xml-stack*)))
@@ -384,7 +384,7 @@
 
 (defun push-text (text &key cdata)
   "Write text from the document to the inner text of the current tag."
-  (princ (if cdata text (replace-refs text)) (element-value *xml-tag*)))
+  (princ (if cdata text (replace-refs text)) (node-value *xml-tag*)))
 
 (defun parse-xml (string &optional source)
   "Convert an XML string into a Lisp object."
@@ -410,8 +410,8 @@
   (labels ((query (tag xpath)
              (destructuring-bind (name &rest rest)
                  xpath
-               (let ((qs (loop :for e :in (element-children tag)
-                               :when (string-equal (element-name e) name)
+               (let ((qs (loop :for e :in (node-elements tag)
+                               :when (string-equal (node-name e) name)
                                :collect e)))
                  (if (null rest)
                      qs
@@ -420,12 +420,12 @@
 
 (defmethod query-xml ((doc doc) xpath)
   "Recursively descend into a document finding all child tags at a given path."
-  (query-xml (make-instance 'tag :children (list (doc-root doc))) xpath))
+  (query-xml (make-instance 'tag :elements (list (doc-root doc))) xpath))
 
 (defmethod query-attribute ((tag tag) name)
   "Search for an attribute in a tag."
-  (find name (element-attributes tag) :key #'element-name :test #'string-equal))
+  (find name (node-attributes tag) :key #'node-name :test #'string-equal))
 
 (defmethod query-attribute ((doc doc) name)
   "Search for an attribute in the XML declaration."
-  (find name (doc-decl doc) :key #'element-name :test #'string-equal))
+  (find name (doc-decl doc) :key #'node-name :test #'string-equal))
