@@ -312,7 +312,7 @@
                          ref
                        (warn "Unrecognized entity ~s" ref))
                    (second e)))))))
-    (replace-re #.(compile-re "&([^;]+);") #'deref string :all t)))
+    (replace-re #/&([^\;]+)\;/ #'deref string :all t)))
 
 (defun make-attribute (name value &optional ns)
   "Create a new attribute element to add to a tag or document."
