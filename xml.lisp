@@ -405,22 +405,24 @@
   "Read the contents of a file and parse it as XML."
   (parse-xml (slurp pathname) pathname))
 
-(defmethod query-xml ((tag tag) xpath)
+(defmethod query-xml ((tag tag) xpath &key first)
   "Recursively descend into a tag finding child tags with a given path."
   (labels ((query (tag xpath)
              (destructuring-bind (name &rest rest)
                  xpath
                (let ((qs (loop :for e :in (node-elements tag)
                                :when (string-equal (node-name e) name)
-                               :collect e)))
+                               :collect (if (or rest (null first))
+                                            e
+                                          (return-from query-xml e)))))
                  (if (null rest)
                      qs
                    (loop :for q :in qs :nconc (query q rest)))))))
     (query tag (split-sequence "/" xpath :coalesce-separators t))))
 
-(defmethod query-xml ((doc doc) xpath)
+(defmethod query-xml ((doc doc) xpath &key first)
   "Recursively descend into a document finding all child tags at a given path."
-  (query-xml (make-instance 'tag :elements (list (doc-root doc))) xpath))
+  (query-xml (make-instance 'tag :elements (list (doc-root doc))) xpath :first first))
 
 (defmethod query-attribute ((tag tag) name)
   "Search for an attribute in a tag."
