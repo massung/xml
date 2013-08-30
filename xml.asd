@@ -1,7 +1,7 @@
 (defpackage :xml-asd
   (:use :cl :asdf))
 
-(in-package :json-asd)
+(in-package :xml-asd)
 
 (defsystem :xml
   :name "xml"
