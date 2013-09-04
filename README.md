@@ -45,11 +45,16 @@ The `XML` package is pretty sparse by design. There are a couple functions for p
 
 ### Document Accessors
 
-	(doc-type doc)              ;=> list
 	(doc-source doc)            ;=> pathname
 	(doc-decl doc)              ;=> attributes
-	(doc-entities doc)          ;=> list
+	(doc-type doc)              ;=> list
+	(doc-prolog doc)            ;=> prolog
 	(doc-root doc)              ;=> tag
+
+### Prolog Accessors
+
+	(prolog-stylesheets prolog) ;=> list
+	(prolog-entities prolog)    ;=> list
 
 ### Node Accessors
 
@@ -66,26 +71,28 @@ The `XML` package is pretty sparse by design. There are a couple functions for p
 
 #### Attribute Accessors (subclass of `node`)
 
-	(node-value attribute)   ;=> string
+	(node-value attribute)      ;=> string
 
 # How It Works
 
-The XML package uses the [`lexer`](http://github.com/massung/lexer) package to tokenize the XML. It is actually six (6) separate lexers, which are used based on the current parse state: prolog, comments, tags, close tags, CDATA, and inner-xml lexers.
+The XML package uses the [`lexer`](http://github.com/massung/lexer) package to tokenize the XML. After tokenizing and parsing, there is an XML "form" that can be evaluated to build the document that looks something like this:
 
-The parser reduces the tokens into a list of closures that - after being successfully parsed - will be called in order. This part can be thought of as if it were a SAX parser: pushing tags, writing inner text, popping tags, etc. These functions make use of the following special variables:
+	(decl doctype prolog root)
 
-* `*XML-DOC*` is the top-level document.
-* `*XML-ROOT*` is the root tag.
-* `*XML-STACK*` is the stack of tags being created.
-* `*XML-TAG*` is the current tag being created.
+The declaration is a list of attributes parsed from the `<?xml?>` declaration. The doctype is what was parsed in the `<!DOCTYPE>` tag. The prolog consists of all the `<?xml-stylesheet?>` and `<!ENTITY>` tags.
 
-Once parsed, a new `*XML-DOC*` is created and the first set of closures executed will set the `doc-decl` attributes, `doc-type` DOCTYPE, and `doc-entities` ENTITIES.
+The root where where all the interesting forms are. Each tag is in a list that resembles:
 
-When a new tag is found, the current `*xml-tag*` is pushed onto the `*xml-stack*` and a new tag is created with the current `*xml-tag*` as its parent. The `inner-text` property of the new tag is a string output stream. As text is found, it is written to the stream.
+	((name &optional ns) attributes inner-forms)
 
-As tags are closed, they are first validated and then pushed onto the `node-elements` property of their parent tag. The `inner-text` stream is then flushed for its text and `*xml-root*` is set to `*xml-tag*`. Finally, `*xml-stack*` is popped into `*xml-tag*` and generation of the XML document tree continues.
+The name, namespace, and attributes are fairly simple. The inner-forms are child elements that can be one of the following:
 
-This continues until there are no more closures to execute, at which time `*xml-doc*` is complete and `*xml-root*` should be the top-level node of the document. 
+	(:tag tag-form)
+	(:text string)
+	(:cdata string)
+	(:close-tag (name &optional ns))
+
+The tag is constructed and then all inner-forms are iterated over and built.
 
 # Feedback
 

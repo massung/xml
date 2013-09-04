@@ -31,12 +31,15 @@
    #:query-attribute
 
    ;; doc accessors
-   #:doc-decl
-   #:doc-stylesheets
    #:doc-source
+   #:doc-decl
    #:doc-type
-   #:doc-entities
+   #:doc-prolog
    #:doc-root
+
+   ;; prolog accessors
+   #:prolog-stylesheets
+   #:prolog-entities
 
    ;; xml node accessors
    #:node-name
@@ -48,15 +51,6 @@
    #:node-elements))
 
 (in-package :xml)
-
-(defvar *xml-doc* nil
-  "The document being parsed currently.")
-(defvar *xml-root* nil
-  "The root tag of the current document.")
-(defvar *xml-stack* nil
-  "The stack of inner tags.")
-(defvar *xml-tag* nil
-  "The tag being parsed.")
 
 (defconstant +xml-entities+
   '(("quot" "\"")
@@ -83,13 +77,17 @@
     ("bdquo" (string (code-char #x8222)))))
 
 (defclass doc ()
-  ((decl        :initarg :decl        :accessor doc-decl        :initform nil)
-   (stylesheets :initarg :stylesheets :accessor doc-stylesheets :initform nil)
-   (source      :initarg :source      :accessor doc-source      :initform nil)
-   (doctype     :initarg :types       :accessor doc-type        :initform nil)
-   (entities    :initarg :entities    :accessor doc-entities    :initform +xml-entities+)
-   (root        :initarg :root        :accessor doc-root        :initform nil))
+  ((source  :initarg :source  :accessor doc-source)
+   (decl    :initarg :decl    :accessor doc-decl)
+   (doctype :initarg :doctype :accessor doc-type)
+   (prolog  :initarg :prolog  :accessor doc-prolog)
+   (root    :initarg :root    :accessor doc-root))
   (:documentation "XML prolog, entity macros, and root tag."))
+
+(defclass prolog ()
+  ((stylesheets :initarg :stylesheets :accessor prolog-stylesheets)
+   (entities    :initarg :entities    :accessor prolog-entities))
+  (:documentation "XML prolog declarations."))
 
 (defclass node ()
   ((name :initarg :name :accessor node-name)
@@ -220,55 +218,66 @@
   ((start xml) $1)
 
   ;; declaration and prolog
-  ((xml decl prolog) `(,$1 ,@$2))
-  ((xml prolog) $1)
+  ((xml doc root)
+   `(,@$1 ,$2))
 
-  ;; <?xml ... ?>
-  ((decl :xml attrs :decl-gt)
-   (lambda () (push-decl $2)))
-
-  ;; stylesheets, doctypes, and entities tags
-  ((prolog stylesheet prolog)
-   `(,$1 ,@$2))
-  ((prolog doctype prolog)
-   `(,$1 ,@$2))
-  ((prolog entity prolog)
-   `(,$1 ,@$2))
-
-  ;; root element
-  ((prolog :tag tag) $2)
-
-  ;; illegal xml
-  ((prolog :error)
+  ;; invalid xml
+  ((xml :error)
    (error "No root tag"))
 
-  ;; <?xml-stylesheet ... ?>
-  ((stylesheet :xml-stylesheet attrs :decl-gt)
-   (lambda () (push-stylesheet $2)))
+  ;; document
+  ((doc decl prolog)
+   `(,$1 ,@$2))
+  ((doc prolog)
+   `(nil ,@$1))
+
+  ;; <?xml ... ?>
+  ((decl :xml attrs :decl-gt) $2)
+
+  ;; doctype, stylesheets, and entities tags
+  ((prolog misc doctype misc)
+   `(,$2 (,@$1 ,@$3)))
+  ((prolog misc)
+   `(nil ,$1))
+
+  ;; stylesheets and entities
+  ((misc stylesheet misc)
+   `(,$1 ,@$2))
+  ((misc entity misc)
+   `(,$1 ,@$2))
+  ((misc)
+   `())
 
   ;; <!doctype ...>
   ((doctype :doctype :id :id :quot :quot :gt)
-   (lambda () (set-doctype $2 $3 $4 $5)))
+   `(:doctype (,$2 ,$3 ,$4 ,$5)))
   ((doctype :doctype :id :id :quot :gt)
-   (lambda () (set-doctype $2 $3 $4)))
+   `(:doctype (,$2 ,$3 ,$4)))
   ((doctype :doctype :id :gt)
-   (lambda () (set-doctype $2)))
+   `(:doctype (,$2)))
+
+  ;; <?xml-stylesheet ... ?>
+  ((stylesheet :xml-stylesheet attrs :decl-gt)
+   `(:stylesheet ,$2))
 
   ;; <!entity id "value">
   ((entity :entity :id :quot :gt)
-   (lambda () (push-entity $2 $3)))
+   `(:entity (,$2 ,$3)))
+
+  ;; root tag
+  ((root :tag tag) $2)
 
   ;; tags with child elements
   ((tag :id :ns :id attrs :inner-xml inner-xml)
-   `(,(lambda () (push-tag $3 $4 $1)) ,@$6))
+   `((,$3 ,$1) ,$4 ,$6))
   ((tag :id attrs :inner-xml inner-xml)
-   `(,(lambda () (push-tag $1 $2)) ,@$4))
+   `((,$1) ,$2 ,$4))
 
   ;; tags without child elements
   ((tag :id :ns :id attrs :end-tag)
-   `(,(lambda () (append-tag $3 $4 $1))))
+   `((,$3 ,$1) ,$4 ((:close-tag (,$3 ,$1)))))
   ((tag :id attrs :end-tag)
-   `(,(lambda () (append-tag $1 $2))))
+   `((,$1) ,$2 ((:close-tag (,$1)))))
 
   ;; illegal xml
   ((tag :error)
@@ -282,145 +291,117 @@
 
   ;; attribute
   ((attr :id :ns :id :eq :quot)
-   `(,$3 ,$5))
+   `((,$3 ,$1) ,$5))
   ((attr :id :eq :quot)
-   `(,$1 ,$3))
+   `((,$1) ,$3))
 
   ;; inner xml
   ((inner-xml element inner-xml)
-   `(,@$1 ,@$2))
+   `(,$1 ,@$2))
+  ((inner-xml :cdata cdata inner-xml)
+   `(,@$2 ,@$3))
 
   ;; close tags
   ((inner-xml :close-tag :id :end-tag)
-   `(,(lambda () (pop-tag $2))))
+   `((:close-tag (,$2))))
   ((inner-xml :close-tag :id :ns :id :end-tag)
-   `(,(lambda () (pop-tag $4 $2))))
+   `((:close-tag (,$4 ,$2))))
 
-  ;; child tags
-  ((element :tag tag) $2)
-  ((element :cdata cdata) $2)
-
-  ;; inner text
+  ;; inner xml elements
+  ((element :tag tag)
+   `(:tag ,$2))
   ((element :text)
-   `(,(lambda () (push-text $1))))
+   `(:text ,$1))
+
+  ;; unknown child element
+  ((element :error)
+   (error "Invalid XML"))
 
   ;; character data
   ((cdata :text cdata)
-   `(,(lambda () (push-text $1 :cdata t)) ,@$2))
+   `((:cdata ,$1) ,@$2))
   ((cdata :end-cdata)
-   `())
+   `()))
 
-  ;; unknown
-  ((element :error)
-   (error "Invalid XML")))
-
-(defun replace-refs (string)
+(defun replace-refs (prolog string)
   "Replace all &ref; references with their counterparts."
   (flet ((deref (m)
-           (let ((ref (first (match-groups m))))
-             (if (char= (char ref 0) #\#)
-                 (let ((n (if (char-equal (char ref 1) #\x)
-                              (parse-integer (subseq ref 2) :radix 16)
-                            (parse-integer (subseq ref 1)))))
-                   (string (code-char n)))
-               (let ((e (assoc ref (doc-entities *xml-doc*) :test #'string-equal)))
-                 (if (null e)
-                     (prog1
-                         ref
-                       (warn "Unrecognized entity ~s" ref))
-                   (second e)))))))
-    (replace-re #/&([^\;]+)\;/ #'deref string :all t)))
+           (with-re-match (m m)
+             (cond
+              ((string= "#" $2)  (code-char (parse-integer $3)))
+              ((string= "#x" $2) (code-char (parse-integer $3 :radix 16)))
+              (t                 (let ((e (second (assoc $1 (prolog-entities prolog) :test #'string=))))
+                                   (if e
+                                       e
+                                     (prog1 $1 (warn "Unrecognized enitty ~s" $1)))))))))
+    (replace-re #/&((#?x?)([^\;]+))\;/ #'deref string :all t)))
 
-(defun make-attribute (name value &optional ns)
+(defun write-inner-text (doc tag text &optional cdata)
+  "Write CDATA or inner text to a tag's inner-text stream."
+  (princ (if cdata text (replace-refs (doc-prolog doc) text)) (node-value tag)))
+
+(defun close-tag (tag name &optional (ns (node-ns tag)))
+  "Validate that the close tag matches the open tag."
+  (unless (and (equal (node-name tag) name)
+               (equal (node-ns tag) ns))
+    (error "Close tag \"~@[~a:~]~a\" does not match ~a" ns name tag))
+
+  ;; reverse the elements and flush the inner-text stream
+  (setf (node-value tag) (get-output-stream-string (node-value tag))
+        (node-elements tag) (reverse (node-elements tag))))
+
+(defun make-attribute (doc key value)
   "Create a new attribute element to add to a tag or document."
-  (make-instance 'attribute
-                 :name name
-                 :ns ns
-                 :doc *xml-doc*
-                 :value (replace-refs value)))
+  (destructuring-bind (name &optional ns)
+      key
+    (make-instance 'attribute :name name :ns ns :doc doc :value (replace-refs (doc-prolog doc) value))))
 
-(defun make-tag (name attrs &optional ns)
-  "Create a new tag to push onto the stack."
-  (make-instance 'tag
-                 :name name
-                 :ns ns
-                 :attributes (loop :for a :in attrs :collect (apply #'make-attribute a))
-                 :doc *xml-doc*
-                 :parent *xml-tag*
-                 :elements ()
-                 :inner-text (make-string-output-stream :element-type 'character)))
+(defun make-tag (doc parent tag-form)
+  "Evaluate a tag form."
+  (destructuring-bind ((name &optional ns) attrs inner-forms)
+      tag-form
+    (let ((tag (make-instance 'tag
+                              :name name
+                              :ns ns
+                              :attributes (loop :for a :in attrs :collect (apply #'make-attribute doc a))
+                              :doc doc
+                              :parent parent
+                              :elements nil
+                              :inner-text (make-string-output-stream :element-type 'character))))
 
-(defun push-decl (attrs)
-  "Add attribute to the document declaration."
-  (dolist (attr attrs)
-    (push (apply #'make-attribute attr) (doc-decl *xml-doc*))))
+      ;; evaluate the inner forms
+      (loop :for (kind value) :in inner-forms
+            :finally (return tag)
+            :do (case kind
+                  (:tag             (push (funcall #'make-tag doc tag value) (node-elements tag)))
 
-(defun push-stylesheet (attrs)
-  "Add attributes to the document stylesheet."
-  (dolist (attr attrs)
-    (push (apply #'make-attribute attr) (doc-stylesheets *xml-doc*))))
+                  ;; inner text data
+                  (:cdata           (write-inner-text doc tag value t))
+                  (:text            (write-inner-text doc tag value))
 
-(defun push-entity (key value)
-  "Add another entity reference to the document."
-  (push (list key value) (doc-entities *xml-doc*)))
+                  ;; create a child tag...
+                  (:close-tag       (apply #'close-tag tag value)))))))
 
-(defun set-doctype (root &rest dtds)
-  "Set the xml document type for the current document."
-  (setf (doc-type *xml-doc*) (cons root dtds)))
+(defun make-prolog (prolog)
+  "Evaluate the document prolog forms."
+  (let ((entities +xml-entities+)
+        (stylesheets))
+    (loop :for (kind value) :in prolog
+          :do (case kind
+                (:entity     (push value entities))
+                (:stylesheet (push value stylesheets))))
 
-(defun push-tag (name attrs &optional ns)
-  "Set the current tag being parsed."
-  (let ((tag (make-tag name attrs ns)))
-    (when *xml-tag*
-      (push tag (node-elements *xml-tag*)))
-    (push *xml-tag* *xml-stack*)
-
-    ;; create a new tag to house child and text elements
-    (setf *xml-tag* tag)))
-
-(defun pop-tag (name &optional ns)
-  "Shift from the parse stack to the current tag and validate."
-  (unless (and (string-equal name (node-name *xml-tag*))
-               (or (null ns)
-                   (string-equal ns (node-ns *xml-tag*))))
-    (error "Close tag ~@[~a:~]~a does not match ~a" ns name *xml-tag*))
-
-  ;; fix up the current tag (inner text and elements)
-  (with-slots (inner-text elements)
-      *xml-tag*
-    (setf inner-text (get-output-stream-string inner-text)
-          elements (reverse elements)))
-
-  ;; set the root element and pop the top stack item
-  (setf *xml-root* *xml-tag* *xml-tag* (pop *xml-stack*)))
-
-(defun append-tag (name attrs &optional ns)
-  "Push and pop the same tag at once."
-  (push-tag name attrs ns)
-  (pop-tag name))
-
-(defun push-text (text &key cdata)
-  "Write text from the document to the inner text of the current tag."
-  (princ (if cdata text (replace-refs text)) (node-value *xml-tag*)))
+    ;; create the prolog from the built up lists
+    (make-instance 'prolog :stylesheets stylesheets :entities entities)))
 
 (defun parse-xml (string &optional source)
   "Convert an XML string into a Lisp object."
-  (let ((*xml-doc* (make-instance 'doc :source source))
-        (*xml-tag*))
-
-    ;; build the document and tags
-    (let ((doc (parse #'xml-parser (tokenize #'prolog-lexer string source))))
-      (dolist (f doc)
-        (funcall f)))
-
-    ;; complete the document and return the root element
-    (prog1
-        *xml-doc*
-      (setf (doc-root *xml-doc*) *xml-root*))))
-
-(defun parse-xml-file (pathname)
-  "Read the contents of a file and parse it as XML."
-  (parse-xml (slurp pathname) pathname))
+  (destructuring-bind (decl doctype prolog root)
+      (parse #'xml-parser (tokenize #'prolog-lexer string source))
+    (let ((doc (make-instance 'doc :source source :decl decl :doctype doctype :prolog (make-prolog prolog))))
+      (prog1
+          doc
+        (setf (doc-root doc) (make-tag doc nil root))))))
 
 (defmethod query-xml ((tag tag) xpath &key first)
   "Recursively descend into a tag finding child tags with a given path."
