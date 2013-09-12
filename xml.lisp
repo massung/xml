@@ -322,22 +322,29 @@
   ((cdata :end-cdata)
    `()))
 
+(defconstant +ref-re+ (compile-re "&((#?x?)([^;]+));")
+  "Compiled pattern used for replacing inner-text entity references.")
+
 (defun replace-refs (prolog string)
   "Replace all &ref; references with their counterparts."
-  (flet ((deref (m)
+  (flet ((expand (m)
            (with-re-match (m m)
              (cond
-              ((string= "#" $2)  (code-char (parse-integer $3)))
+              ((string= "#"  $2) (code-char (parse-integer $3)))
               ((string= "#x" $2) (code-char (parse-integer $3 :radix 16)))
               (t                 (let ((e (second (assoc $1 (prolog-entities prolog) :test #'string=))))
                                    (if e
                                        e
-                                     (prog1 $1 (warn "Unrecognized enitty ~s" $1)))))))))
-    (replace-re #/&((#?x?)([^\;]+))\;/ #'deref string :all t)))
+                                     (prog1 $1 (warn "Unrecognized entity ~s" $1)))))))))
+    (replace-re +ref-re+ #'expand string :all t)))
 
-(defun write-inner-text (doc tag text)
+(defun normalize (string)
+  "Remove whitespace from the beginning and ends of a string."
+  (string-trim '(#\space #\tab #\return #\linefeed #\newline) string))
+
+(defun write-inner-text (doc tag text &optional cdata)
   "Write CDATA or inner text to a tag's inner-text stream."
-  (princ (replace-refs (doc-prolog doc) text) (node-value tag)))
+  (princ (if cdata text (replace-refs (doc-prolog doc) text)) (node-value tag)))
 
 (defun close-tag (tag name &optional (ns (node-ns tag)))
   "Validate that the close tag matches the open tag."
@@ -346,14 +353,18 @@
     (error "Close tag \"~@[~a:~]~a\" does not match ~a" ns name tag))
 
   ;; reverse the elements and flush the inner-text stream
-  (setf (node-value tag) (get-output-stream-string (node-value tag))
+  (setf (node-value tag) (normalize (get-output-stream-string (node-value tag)))
         (node-elements tag) (reverse (node-elements tag))))
 
 (defun make-attribute (doc key value)
   "Create a new attribute element to add to a tag or document."
   (destructuring-bind (name &optional ns)
       key
-    (make-instance 'attribute :name name :ns ns :doc doc :value (replace-refs (doc-prolog doc) value))))
+    (make-instance 'attribute
+                   :name name
+                   :ns ns
+                   :doc doc
+                   :value (normalize (replace-refs (doc-prolog doc) value)))))
 
 (defun make-tag (doc parent tag-form)
   "Evaluate a tag form."
@@ -375,7 +386,7 @@
                   (:tag             (push (funcall #'make-tag doc tag value) (node-elements tag)))
 
                   ;; inner text data
-                  (:cdata           (write-inner-text doc tag value))
+                  (:cdata           (write-inner-text doc tag value t))
                   (:text            (write-inner-text doc tag value))
 
                   ;; create a child tag...
