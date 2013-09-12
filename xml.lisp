@@ -335,9 +335,9 @@
                                      (prog1 $1 (warn "Unrecognized enitty ~s" $1)))))))))
     (replace-re #/&((#?x?)([^\;]+))\;/ #'deref string :all t)))
 
-(defun write-inner-text (doc tag text &optional cdata)
+(defun write-inner-text (doc tag text)
   "Write CDATA or inner text to a tag's inner-text stream."
-  (princ (if cdata text (replace-refs (doc-prolog doc) text)) (node-value tag)))
+  (princ (replace-refs (doc-prolog doc) text) (node-value tag)))
 
 (defun close-tag (tag name &optional (ns (node-ns tag)))
   "Validate that the close tag matches the open tag."
@@ -375,7 +375,7 @@
                   (:tag             (push (funcall #'make-tag doc tag value) (node-elements tag)))
 
                   ;; inner text data
-                  (:cdata           (write-inner-text doc tag value t))
+                  (:cdata           (write-inner-text doc tag value))
                   (:text            (write-inner-text doc tag value))
 
                   ;; create a child tag...
