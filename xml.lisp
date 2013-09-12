@@ -24,7 +24,6 @@
   (:use :cl :lw :parsergen :re :lexer)
   (:export
    #:parse-xml
-   #:parse-xml-file
 
    ;; element traversal
    #:query-xml
