@@ -25,9 +25,12 @@
   (:export
    #:parse-xml
 
-   ;; element traversal
+   ;; finding elements and attributes
+   #:find-xml
+   #:find-attribute
+
+   ;; querying for multiple elements
    #:query-xml
-   #:query-attribute
 
    ;; doc accessors
    #:doc-source
@@ -413,29 +416,55 @@
           doc
         (setf (doc-root doc) (make-tag doc nil root))))))
 
-(defmethod query-xml ((tag tag) xpath &key first)
+(defmethod find-xml ((tag tag) xpath)
+  "Returns the first child to match xpath."
+  (labels ((query (tag xpath)
+             (destructuring-bind (name &rest rest)
+                 xpath
+               (prog ((child (member name (node-elements tag) :test #'string-equal :key #'node-name)))
+                 next-child
+
+                 ;; no child found
+                 (unless child
+                   (return-from find-xml))
+
+                 ;; at the end of the xpath
+                 (unless rest
+                   (return-from find-xml (car child)))
+
+                 ;; scan the rest of the path
+                 (query (first child) rest)
+
+                 ;; find the next child tree
+                 (setf child (member name (rest child) :test #'string-equal :key #'node-name))
+
+                 ;; repeat
+                 (go next-child)))))
+    (query tag (split-sequence "/" xpath :coalesce-separators t))))
+
+(defmethod find-xml ((doc doc) xpath)
+  "Returns the first child to match xpath."
+  (find-xml (make-instance 'tag :elements (list (doc-root doc))) xpath))
+
+(defmethod query-xml ((tag tag) xpath)
   "Recursively descend into a tag finding child tags with a given path."
   (labels ((query (tag xpath)
              (destructuring-bind (name &rest rest)
                  xpath
-               (let ((qs (loop :for e :in (node-elements tag)
-                               :when (string-equal (node-name e) name)
-                               :collect (if (or rest (null first))
-                                            e
-                                          (return-from query-xml e)))))
+               (let ((qs (remove-if-not #'(lambda (e) (string-equal (node-name e) name)) (node-elements tag))))
                  (if (null rest)
                      qs
-                   (loop :for q :in qs :nconc (query q rest)))))))
+                   (loop :for q :in qs :append (query q rest)))))))
     (query tag (split-sequence "/" xpath :coalesce-separators t))))
 
-(defmethod query-xml ((doc doc) xpath &key first)
+(defmethod query-xml ((doc doc) xpath )
   "Recursively descend into a document finding all child tags at a given path."
-  (query-xml (make-instance 'tag :elements (list (doc-root doc))) xpath :first first))
+  (query-xml (make-instance 'tag :elements (list (doc-root doc))) xpath))
 
-(defmethod query-attribute ((tag tag) name)
+(defmethod find-attribute ((tag tag) name)
   "Search for an attribute in a tag."
   (find name (node-attributes tag) :key #'node-name :test #'string-equal))
 
-(defmethod query-attribute ((doc doc) name)
+(defmethod find-attribute ((doc doc) name)
   "Search for an attribute in the XML declaration."
   (find name (doc-decl doc) :key #'node-name :test #'string-equal))
