@@ -79,11 +79,12 @@
     ("bdquo" ,(string (code-char 8222)))))
 
 (defclass doc ()
-  ((source  :initarg :source  :accessor doc-source)
-   (decl    :initarg :decl    :accessor doc-decl)
-   (doctype :initarg :doctype :accessor doc-type)
-   (prolog  :initarg :prolog  :accessor doc-prolog)
-   (root    :initarg :root    :accessor doc-root))
+  ((source   :initarg :source   :accessor doc-source)
+   (decl     :initarg :decl     :accessor doc-decl)
+   (doctype  :initarg :doctype  :accessor doc-type)
+   (prolog   :initarg :prolog   :accessor doc-prolog)
+   (encoding :initarg :encoding :accessor doc-encoding)
+   (root     :initarg :root     :accessor doc-root))
   (:documentation "XML prolog, entity macros, and root tag."))
 
 (defclass prolog ()
@@ -347,7 +348,8 @@
 
 (defun write-inner-text (doc tag text &optional cdata)
   "Write CDATA or inner text to a tag's inner-text stream."
-  (princ (if cdata text (replace-refs (doc-prolog doc) text)) (node-value tag)))
+  (let ((text (map 'vector (unsigned-byte 8)) #'char-code (if cdata text (replace-refs (doc-prolog doc) text)))))
+    (princ (external-format:decode-external-string text (doc-encoding doc)) (node-value tag))))
 
 (defun close-tag (tag name &optional (ns (node-ns tag)))
   "Validate that the close tag matches the open tag."
@@ -407,11 +409,22 @@
     ;; create the prolog from the built up lists
     (make-instance 'prolog :stylesheets stylesheets :entities entities)))
 
+(defun encoding-of-xml-decl (decl)
+  "Return the external format for the xml declaration."
+  (when-let (encoding (assoc "encoding" decl :test #'string-equal :key #'first))
+    (cond
+     ((string-equal (second encoding) "utf-8") :utf-8))))
+
 (defun parse-xml (string &optional source)
   "Convert an XML string into a Lisp object."
   (destructuring-bind (decl doctype prolog root)
       (parse #'xml-parser (tokenize #'prolog-lexer string source))
-    (let ((doc (make-instance 'doc :source source :decl decl :doctype doctype :prolog (make-prolog prolog))))
+    (let ((doc (make-instance 'doc
+                              :source source
+                              :decl decl
+                              :doctype doctype
+                              :encoding (or (encoding-of-xml-decl decl) :latin-1)
+                              :prolog (make-prolog prolog))))
       (prog1
           doc
         (setf (doc-root doc) (make-tag doc nil root))))))
