@@ -25,11 +25,11 @@
   (:export
    #:parse-xml
 
-   ;; finding elements and attributes
+   ;; single-element searches
    #:find-xml
    #:find-attribute
 
-   ;; querying for multiple elements
+   ;; multi-element searches
    #:query-xml
 
    ;; doc accessors
@@ -426,11 +426,11 @@
 
                  ;; no child found
                  (unless child
-                   (return-from find-xml nil))
+                   (return-from find-xml))
 
                  ;; at the end of the xpath
                  (unless rest
-                   (return-from find-xml (values (car child) t)))
+                   (return-from find-xml (first child)))
 
                  ;; scan the rest of the path
                  (query (first child) rest)
