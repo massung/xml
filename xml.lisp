@@ -426,11 +426,11 @@
 
                  ;; no child found
                  (unless child
-                   (return-from find-xml))
+                   (return-from find-xml nil))
 
                  ;; at the end of the xpath
                  (unless rest
-                   (return-from find-xml (car child)))
+                   (return-from find-xml (values (car child) t)))
 
                  ;; scan the rest of the path
                  (query (first child) rest)
