@@ -417,7 +417,12 @@
   "Return the external format for the xml declaration."
   (when-let (encoding (assoc "encoding" decl :test #'string-equal :key #'first))
     (cond
-     ((string-equal (second encoding) "utf-8") :utf-8))))
+     ((string-equal (second encoding) "utf-8") :utf-8)
+     ((string-equal (second encoding) "iso-8859-1") :latin-1)
+     ((string-equal (second encoding) "shift_jis") :sjis)
+     ((string-equal (second encoding) "x-mac-roman") :macos-roman)
+     ((string-equal (second encoding) "euc-jp" :euc-jp))
+     ((string-equal (second encoding) "jis") :jis))))
 
 (defun parse-xml (string &optional source)
   "Convert an XML string into a Lisp object."
