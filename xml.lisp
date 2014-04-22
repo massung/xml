@@ -348,12 +348,11 @@
 
 (defun write-inner-text (doc tag text &optional cdata)
   "Write CDATA or inner text to a tag's inner-text stream."
-  (let ((text (if cdata text (replace-refs (doc-prolog doc) text))))
-    (princ (if (eq (doc-encoding doc) :latin-1)
+  (let ((s (if (eq (doc-encoding doc) :latin-1)
                text
              (let ((bytes (map 'vector #'char-code text)))
-               (external-format:decode-external-string bytes (doc-encoding doc))))
-           (node-value tag))))
+               (external-format:decode-external-string bytes (doc-encoding doc))))))
+    (princ (if cdata s (replace-refs (doc-prolog doc) s)) (node-value tag))))
 
 (defun close-tag (tag name &optional (ns (node-ns tag)))
   "Validate that the close tag matches the open tag."
