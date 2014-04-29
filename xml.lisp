@@ -478,7 +478,7 @@
                    (loop :for q :in qs :append (query q rest)))))))
     (query tag (split-sequence "/" xpath :coalesce-separators t))))
 
-(defmethod query-xml ((doc doc) xpath )
+(defmethod query-xml ((doc doc) xpath)
   "Recursively descend into a document finding all child tags at a given path."
   (query-xml (make-instance 'tag :elements (list (doc-root doc))) xpath))
 
