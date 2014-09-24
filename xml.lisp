@@ -62,29 +62,31 @@
     ("amp"  "&")
 
     ;; not in the spec; very common
-    ("copy"  ,(string #\u+0169))
-    ("reg"   ,(string #\u+0174))
-    ("cent"  ,(string #\u+0162))
-    ("pound" ,(string #\u+0163))
-    ("yen"   ,(string #\u+0165))
-    ("euro"  ,(string #\u+8364))
-    ("trade" ,(string #\u+8424))
-    ("ndash" ,(string #\u+8211))
-    ("mdash" ,(string #\u+8212))
-    ("lsquo" ,(string #\u+8216))
-    ("rsquo" ,(string #\u+8217))
-    ("sbquo" ,(string #\u+8218))
-    ("ldquo" ,(string #\u+8220))
-    ("rdquo" ,(string #\u+8221))
-    ("bdquo" ,(string #\u+8222))))
+    ("copy"   ,(string #\u+0169))
+    ("reg"    ,(string #\u+0174))
+    ("cent"   ,(string #\u+0162))
+    ("pound"  ,(string #\u+0163))
+    ("yen"    ,(string #\u+0165))
+    ("hellip" ,(string #\u+2026))
+    ("euro"   ,(string #\u+8364))
+    ("trade"  ,(string #\u+8424))
+    ("ndash"  ,(string #\u+8211))
+    ("mdash"  ,(string #\u+8212))
+    ("lsquo"  ,(string #\u+8216))
+    ("rsquo"  ,(string #\u+8217))
+    ("sbquo"  ,(string #\u+8218))
+    ("ldquo"  ,(string #\u+8220))
+    ("rdquo"  ,(string #\u+8221))
+    ("bdquo"  ,(string #\u+8222))))
 
 (defclass doc ()
-  ((source   :initarg :source   :accessor doc-source)
-   (decl     :initarg :decl     :accessor doc-decl)
-   (doctype  :initarg :doctype  :accessor doc-type)
-   (prolog   :initarg :prolog   :accessor doc-prolog)
-   (encoding :initarg :encoding :accessor doc-encoding)
-   (root     :initarg :root     :accessor doc-root))
+  ((source          :initarg :source          :accessor doc-source)
+   (decl            :initarg :decl            :accessor doc-decl)
+   (doctype         :initarg :doctype         :accessor doc-type)
+   (prolog          :initarg :prolog          :accessor doc-prolog)
+   (encoding        :initarg :encoding        :accessor doc-encoding)
+   (source-encoding :initarg :source-encoding :accessor doc-source-encoding)
+   (root            :initarg :root            :accessor doc-root))
   (:documentation "XML prolog, entity macros, and root tag."))
 
 (defclass prolog ()
@@ -348,9 +350,9 @@
 
 (defun write-inner-text (doc tag text &optional cdata)
   "Write CDATA or inner text to a tag's inner-text stream."
-  (let ((s (if (eq (doc-encoding doc) :latin-1)
+  (let ((s (if (eq (doc-encoding doc) (doc-source-encoding doc))
                text
-             (let ((bytes (map 'vector #'char-code text)))
+             (let* ((bytes (external-format:encode-lisp-string text (doc-source-encoding doc))))
                (external-format:decode-external-string bytes (doc-encoding doc))))))
     (princ (if cdata s (replace-refs (doc-prolog doc) s)) (node-value tag))))
 
@@ -385,7 +387,7 @@
                               :doc doc
                               :parent parent
                               :elements nil
-                              :inner-text (make-string-output-stream :element-type 'character))))
+                              :inner-text (make-string-output-stream :element-type 'lw:simple-char))))
 
       ;; evaluate the inner forms
       (loop :for (kind value) :in inner-forms
@@ -423,7 +425,7 @@
      ((string-equal (second encoding) "euc-jp" :euc-jp))
      ((string-equal (second encoding) "jis") :jis))))
 
-(defun parse-xml (string &optional source)
+(defun parse-xml (string &optional source (source-encoding :latin-1))
   "Convert an XML string into a Lisp object."
   (destructuring-bind (decl doctype prolog root)
       (parse #'xml-parser (tokenize #'prolog-lexer string source))
@@ -431,6 +433,7 @@
                               :source source
                               :decl decl
                               :doctype doctype
+                              :source-encoding source-encoding
                               :encoding (or (encoding-of-xml-decl decl) :latin-1)
                               :prolog (make-prolog prolog))))
       (prog1
