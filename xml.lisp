@@ -418,30 +418,51 @@
           doc
         (setf (doc-root doc) (make-tag doc nil root))))))
 
+(defun match-tag (ns name tag)
+  "Match the tag namespace:name with name (wildcards match)."
+  (and (string= ns (node-ns tag))
+       (or (string= name "*")
+           (string= name (node-name tag)))))
+
+(defmacro with-node-matcher ((f qs) &body body)
+  "Returns a function that compares a tag name string (e.g. ns:name) to a tag."
+  (let ((name (gensym))
+        (ns (gensym))
+        (node (gensym)))
+    `(destructuring-bind (,name &optional ,ns)
+         (reverse (split-sequence '(#\:) ,qs))
+       (flet ((,f (,node)
+                (and (or (null ,ns)
+                         (string= ,ns (node-ns ,node)))
+                     (or (string= ,name "*")
+                         (string= ,name (node-name ,node))))))
+         (progn ,@body)))))
+
 (defmethod find-xml ((tag tag) xpath)
   "Returns the first child to match xpath."
   (labels ((query (tag xpath)
              (destructuring-bind (name &rest rest)
                  xpath
-               (prog ((child (member name (node-elements tag) :test #'string-equal :key #'node-name)))
-                 next-child
-
-                 ;; no child found
-                 (unless child
-                   (return-from find-xml))
-
-                 ;; at the end of the xpath
-                 (unless rest
-                   (return-from find-xml (first child)))
-
-                 ;; scan the rest of the path
-                 (query (first child) rest)
-
-                 ;; find the next child tree
-                 (setf child (member name (rest child) :test #'string-equal :key #'node-name))
-
-                 ;; repeat
-                 (go next-child)))))
+               (with-node-matcher (match-tag name)
+                 (prog ((child (member-if #'match-tag (node-elements tag))))
+                   next-child
+                   
+                   ;; no child found
+                   (unless child
+                     (return-from find-xml))
+                   
+                   ;; at the end of the xpath
+                   (unless rest
+                     (return-from find-xml (first child)))
+                   
+                   ;; scan the rest of the path
+                   (query (first child) rest)
+                   
+                   ;; find the next child tree
+                   (setf child (member-if #'match-tag (rest child)))
+                   
+                   ;; repeat
+                   (go next-child))))))
     (query tag (split-sequence "/" xpath :coalesce-separators t))))
 
 (defmethod find-xml ((doc doc) xpath)
@@ -453,10 +474,11 @@
   (labels ((query (tag xpath)
              (destructuring-bind (name &rest rest)
                  xpath
-               (let ((qs (remove-if-not #'(lambda (e) (string-equal (node-name e) name)) (node-elements tag))))
-                 (if (null rest)
-                     qs
-                   (loop :for q :in qs :append (query q rest)))))))
+               (with-node-matcher (match-tag name)
+                 (let ((qs (remove-if-not #'match-tag (node-elements tag))))
+                   (if (null rest)
+                       qs
+                     (loop :for q :in qs :append (query q rest))))))))
     (query tag (split-sequence "/" xpath :coalesce-separators t))))
 
 (defmethod query-xml ((doc doc) xpath)
@@ -465,8 +487,10 @@
 
 (defmethod find-attribute ((tag tag) name)
   "Search for an attribute in a tag."
-  (find name (node-attributes tag) :key #'node-name :test #'string-equal))
+  (with-node-matcher (match-attrib name)
+    (find-if #'match-attrib (node-attributes tag))))
 
 (defmethod find-attribute ((doc doc) name)
   "Search for an attribute in the XML declaration."
-  (find name (doc-decl doc) :key #'node-name :test #'string-equal))
+  (with-node-matcher (match-attrib name)
+    (find-if #'match-attrib (doc-decl doc))))
