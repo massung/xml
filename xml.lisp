@@ -21,7 +21,7 @@
   (require "parsergen"))
 
 (defpackage :xml
-  (:use :cl :lw :parsergen :re :lexer)
+  (:use :cl :lw :parsergen :re :lexer :html)
   (:export
    #:parse-xml
 
@@ -54,30 +54,8 @@
 
 (in-package :xml)
 
-(defconstant +xml-entities+
-  `(("quot" "\"")
-    ("apos" "'")
-    ("lt"   "<")
-    ("gt"   ">")
-    ("amp"  "&")
-
-    ;; not in the spec; very common
-    ("copy"   ,(string #\u+0169))
-    ("reg"    ,(string #\u+0174))
-    ("cent"   ,(string #\u+0162))
-    ("pound"  ,(string #\u+0163))
-    ("yen"    ,(string #\u+0165))
-    ("hellip" ,(string #\u+2026))
-    ("euro"   ,(string #\u+8364))
-    ("trade"  ,(string #\u+8424))
-    ("ndash"  ,(string #\u+8211))
-    ("mdash"  ,(string #\u+8212))
-    ("lsquo"  ,(string #\u+8216))
-    ("rsquo"  ,(string #\u+8217))
-    ("sbquo"  ,(string #\u+8218))
-    ("ldquo"  ,(string #\u+8220))
-    ("rdquo"  ,(string #\u+8221))
-    ("bdquo"  ,(string #\u+8222))))
+(defconstant +xml-entities+ (loop :for (k c) :in html::+html-entities+ :collect (list k (string c)))
+  "Copy of the HTML entities, but with strings.")
 
 (defclass doc ()
   ((source          :initarg :source          :accessor doc-source)
