@@ -21,6 +21,33 @@ In the test folder are a couple files you can try parsing as well.
 	
 The test file is *extremely* featured and is used to test everything that the XML library does.
 
+## Document Traversal
+
+It should be easy enough (using the inspector) to see how the document and tags, attributes, etc. are laid out. But, there are a couple helper methods for finding and traversing the document:
+
+	(xml-query [tag|doc] path &key all)  ;=> xml-tags
+
+Querying is not an xpath, but it does allow for speedy finding of elements within a document. For example:
+
+	CL-USER > (xml-load #p"test/rss.xml")
+	#<XML::XML-DOC "rss">
+	
+	CL-USER > (xml-query * "/rss/channel/item/title" :all t)
+	(#<XML::XML-TAG "title">
+	 #<XML::XML-TAG "title">
+	 #<XML::XML-TAG "title">)
+	 
+	CL-USER > (mapcar #'xml-node-value *)
+	("Star City"
+	 "The Engine That Does More"
+	 "Astronauts' Dirty Laundry")
+	 
+Additionally there is `xml-query-attribute`, which can find an attribute from with a tag.
+
+	(xml-query-attribute [tag|doc] attribute)  ;=> xml-attribute
+
+With both `xml-query` and `xml-query-attribute`, passing the document object will simply run the query on the root tag.
+
 ## What Does XML Parse?
 
 The XML package can parse *all* valid XML files. While the parse is non-validating, it does do the following (in addition to typical parsing of tags):
