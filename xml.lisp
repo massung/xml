@@ -583,7 +583,7 @@
                    (:char (princ (token-value tok) s))
                    
                    ;; when the encodings don't match, convert between them
-                   (:text (let ((text (if (eq encoding source-encoding)
+                   (:text (let ((text (if (or (null document) (eq encoding source-encoding))
                                           (token-value tok)
                                         (let ((bytes (encode-lisp-string (token-value tok) source-encoding)))
                                           (decode-external-string bytes encoding)))))
