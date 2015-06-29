@@ -4,96 +4,110 @@ A small, quick, and fairly-well featured XML parser for [LispWorks](http://www.l
 
 It makes heavy use of my [`re`](http://github.com/massung/re) and [`lexer`](http://github.com/massung/lexer) packages. So if you want to understand the code, start by understanding those first.
 
-# License
-
-This package uses the [Apache 2.0 license](http://www.apache.org/licenses/LICENSE-2.0). Please adhere to it.
-
-# Quickstart
+## Quickstart
 
 Once `xml.lisp` has been loaded you should be able to immediately begin parsing XML from both a string and a source file.
 
-	CL-USER > (parse-xml "<!ENTITY who \"world\"><say>Hello, &who;!</say>")
-	<XML::DOC say>
+	CL-USER > (xml-parse "<test>Hello, world!</test>")
+	#<XML::XML-DOC "test">
 
-	CL-USER > (node-value (doc-root *))
+	CL-USER > (xml-node-value (xml-doc-root *))
 	"Hello, world!"
+	
+In the test folder are a couple files you can try parsing as well.
 
-	CL-USER > (parse-xml-file #p"test/rss.xml")
-	<XML::DOC rss>
+	CL-USER > (xml-load #p"test/test.xml")
+	#<XML::XML-DOC "test">
+	
+The test file is *extremely* featured and is used to test everything that the XML library does.
 
-	CL-USER > (query-xml * "/rss/channel/item/title")
-	(#<XML::TAG title>
-	 #<XML::TAG title>
-	 #<XML::TAG title>)
+## What Does XML Parse?
 
-# Exported Methods
+The XML package can parse *all* valid XML files. While the parse is non-validating, it does do the following (in addition to typical parsing of tags):
 
-The `XML` package is pretty sparse by design. There are a couple functions for parsing from a source file or string, and searching a document for tags using an xpath. All other methods exposed are accessors in the `doc` or `tag` classes.
+* DOCTYPE and DTD
+* ENTITY tags
+* Parameter ENTITY tags
+* Loading SYSTEM references
+* Proper expansion of entities!
+* Embedding of parameter entities within the DTD
+* Processing instructions
 
-### Parsing Methods
+Special attention should be noted on "proper expansion of entities". Many smaller XML parsers do not do this opting to completely ignore the DTD all-together. For example, many XML parsers will get this wrong (taken from [http://www.w3.org/TR/REC-xml/](http://www.w3.org/TR/REC-xml/)):
 
-	(parse-xml string)          ;=> doc
-	(parse-xml-file pathname)   ;=> doc
+	<!DOCTYPE tricky [
+	<!ENTITY % xx '&#37;zz;'>
+	<!ENTITY % zz '&#60;!ENTITY tricky "error-prone">'>
+	%xx;
+	]>
+	<tricky>This is &tricky;...</tricky>
 
-### Traverse/Query Methods
+The above should contain a tag (tricky) with the inner text value "This is error-prone...". Note the use of parameter entities, proper expansion (at the proper time), recursive expansion, and expansion within the DTD.
 
-	(query-xml tag xpath)       ;=> list
-	(query-xml doc xpath)       ;=> list
+Additionally, processing instructions are parsed and kept with either the document or the tag (if parsed from within a tag), and can be viewed afterwards.
 
-	(query-attribute tag name)  ;=> attribute
-	(query-attribute doc name)  ;=> attribute
+## Exported Methods
 
-### Document Accessors
+The `XML` package is pretty sparse by design. There are a couple functions for parsing from a source file or string, and searching a document for tags using a path. All other methods exposed are accessors in the `xml-doc`, `xml-node`, or a few other classes.
 
-	(doc-source doc)            ;=> pathname
-	(doc-decl doc)              ;=> attributes
-	(doc-type doc)              ;=> list
-	(doc-prolog doc)            ;=> prolog
-	(doc-root doc)              ;=> tag
+#### Loading and Parsing XML Files
 
-### Prolog Accessors
+	(xml-load pathname &key source-encoding)         ;=> xml-doc
 
-	(prolog-stylesheets prolog) ;=> list
-	(prolog-entities prolog)    ;=> list
+#### Parsing XML Files
 
-### Node Accessors
+	(xml-parse string &key source source-encoding)   ;=> xml-doc
+	
+#### Parsing XML Inner Text and Attribute Lists
+	
+	(xml-parse-text string &key document)            ;=> string
+	(xml-parse-attributes string &key document)      ;=> xml-attributes
 
-	(node-name node)            ;=> string
-	(node-ns node)              ;=> string
-	(node-doc node)             ;=> doc
+#### Traverse/Query Methods
 
-#### Tag Accessors (subclass of `node`)
+	(xml-query xml-tag path &key all)                ;=> xml-tags
+	(xml-query xml-doc path &key all)                ;=> xml-tags
 
-	(node-parent tag)           ;=> tag
-	(node-attributes tag)       ;=> attributes
-	(node-elements tag)         ;=> tags
-	(node-value tag)            ;=> string
+	(xml-query-attribute xml-tag name)               ;=> xml-attribute
+	(xml-query-attribute xml-doc name)               ;=> xml-attribute
 
-#### Attribute Accessors (subclass of `node`)
+#### `xml-doc` methods
 
-	(node-value attribute)      ;=> string
+	(xml-doc-root xml-doc)                           ;=> xml-tag
+	(xml-doc-doctype xml-doc)                        ;=> xml-doctype
+	(xml-doc-entities xml-doc)                       ;=> xml-entities
+	(xml-doc-instructions xml-doc)                   ;=> xml-processing-instructions
+	(xml-doc-source xml-doc)                         ;=> pathname
+	(xml-doc-source-encoding xml-doc)                ;=> keyword
+	(xml-doc-encoding xml-doc)                       ;=> keyword
+	(xml-doc-standalone xml-doc)                     ;=> boolean
+	(xml-doc-version xml-doc)                        ;=> string
+	
+#### `xml-external-ref` methods
 
-# How It Works
+	(xml-external-ref-public-id xml-external-ref)    ;=> string
+	(xml-external-ref-system-uri xml-external-ref)   ;=> string
+	
+#### `xml-doctype` methods (subclass of `xml-external-ref`)
 
-The XML package uses the [`lexer`](http://github.com/massung/lexer) package to tokenize the XML. After tokenizing and parsing, there is an XML "form" that can be evaluated to build the document that looks something like this:
+	(xml-doctype-root xml-doctype)                   ;=> string
 
-	(decl doctype prolog root)
+#### `xml-node` methods
 
-The declaration is a list of attributes parsed from the `<?xml?>` declaration. The doctype is what was parsed in the `<!DOCTYPE>` tag. The prolog consists of all the `<?xml-stylesheet?>` and `<!ENTITY>` tags.
+	(xml-node-name xml-node)                         ;=> string
+	(xml-node-value xml-node)                        ;=> string
+	(xml-node-doc xml-node)                          ;=> xml-doc
 
-The root where where all the interesting forms are. Each tag is in a list that resembles:
+#### `xml-tag` methods (subclass of `xml-node`)
 
-	((name &optional ns) attributes inner-forms)
+	(xml-tag-attributes xml-tag)                     ;=> xml-attributes
+	(xml-tag-elements xml-tag)                       ;=> xml-tags
+	(xml-tag-instructions xml-tag)                   ;=> xml-processing-instructions
+	
+Processing instructions and attributes are simple subclasses of `xml-node`. The entity class is both a subclass of `xml-node` and `xml-external-ref`.
 
-The name, namespace, and attributes are fairly simple. The inner-forms are child elements that can be one of the following:
+That's it!
 
-	(:tag tag-form)
-	(:text string)
-	(:cdata string)
-	(:close-tag (name &optional ns))
-
-The tag is constructed and then all inner-forms are iterated over and built.
-
-# Feedback
+## Feedback
 
 Something not working right? Have a question or comment? Feel free to email me or create an issue on [GitHub](http://github.com/massung/xml).
