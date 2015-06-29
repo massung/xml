@@ -81,7 +81,7 @@
    (source          :initarg :source          :accessor xml-doc-source              :initform nil)
    (source-encoding :initarg :source-encoding :accessor xml-doc-source-encoding     :initform :utf-8)
    (encoding        :initarg :encoding        :accessor xml-doc-encoding            :initform :utf-8)
-   (standalone      :initarg :standalone      :accessor xml-doc-standalone          :initform t)
+   (standalone      :initarg :standalone      :accessor xml-doc-standalone          :initform nil)
    (version         :initarg :version         :accessor xml-doc-version             :initform 1.0))
   (:documentation "Basic XML document parsing context."))
 
