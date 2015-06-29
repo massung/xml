@@ -358,12 +358,16 @@
 
   ;; document is xml declaration and root tag
   ((doc prolog root misc) t)
-  ((doc doctype root misc) t)
   ((doc root misc) t)
 
+  ;; syntax error
+  ((doc :error)
+   (error "Malformed XML document"))
+
   ;; xml declaration
-  ((prolog decl misc doctype))
-  ((prolog decl))
+  ((prolog decl misc doctype misc))
+  ((prolog decl misc))
+  ((prolog doctype misc))
 
   ;; xml declaration
   ((decl :decl decl-atts))
@@ -571,17 +575,27 @@
 (defun xml-parse-text (string &key (document *xml-doc*))
   "Parse a text string as XML, decode entities."
   (let ((*xml-doc* document))
-    (with-output-to-string (s nil :element-type 'simple-char)
-      (flet ((scan-token (tok)
-               (princ (token-value tok) s)))
-        (scan #'scan-token 'xml-inner-text-lexer string)))))
+    (with-slots (encoding source-encoding)
+        document
+      (with-output-to-string (s nil :element-type 'simple-char)
+        (flet ((scan-token (tok)
+                 (case (token-class tok)
+                   (:char (princ (token-value tok) s))
+                   
+                   ;; when the encodings don't match, convert between them
+                   (:text (let ((text (if (eq encoding source-encoding)
+                                          (token-value tok)
+                                        (let ((bytes (encode-lisp-string (token-value tok) source-encoding)))
+                                          (decode-external-string bytes encoding)))))
+                            (princ text s))))))
+          (scan #'scan-token 'xml-inner-text-lexer string))))))
 
 (defun xml-parse-attributes (string &key (document *xml-doc*))
   "Parse a text string as a series of attributes."
   (let ((*xml-doc* document))
     (parse 'xml-attribute-parser (tokenize 'xml-attribute-lexer string))))
 
-(defun xml-parse (string &key source (source-encoding :latin-1))
+(defun xml-parse (string &optional source (source-encoding :latin-1))
   "Parse a string as XML."
   (let ((*xml-doc* (make-instance 'xml-doc :source source :source-encoding source-encoding))
         (*xml-parameter-entities* ())
@@ -598,7 +612,7 @@
 (defun xml-load (pathname &key (source-encoding :latin-1))
   "Read the contents of a file and then parse it as XML."
   (let ((string (slurp pathname :element-type 'lw:simple-char)))
-    (xml-parse string :source pathname :source-encoding source-encoding)))
+    (xml-parse string pathname source-encoding)))
 
 ;;; ----------------------------------------------------
 
