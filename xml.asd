@@ -10,5 +10,7 @@
   :license "Apache 2.0"
   :description "XML parsing for LispWorks."
   :serial t
-  :components ((:file "xml"))
-  :depends-on ("lexer"))
+  :components ((:file "sax")
+               (:file "doc")
+               (:file "xml")
+               (:file "parser")))
