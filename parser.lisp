@@ -146,53 +146,94 @@
 
 ;;; ----------------------------------------------------
 
+(defun xml-name-char-p (c)
+  "T if the character begins a valid XML name."
+  (or (char= c #\:)
+      (char= c #\_)
+      
+      ;; any ascii letter
+      (char<= #\A c #\Z)
+      (char<= #\a c #\z)
+      
+      ;; acceptable unicode character ranges
+      (char<= #\u+00C0 c #\u+00D6)
+      (char<= #\u+00D8 c #\u+00F6)
+      (char<= #\u+00F8 c #\u+02FF)
+      (char<= #\u+0370 c #\u+037D)
+      (char<= #\u+037F c #\u+1FFF)
+      (char<= #\u+200C c #\u+200D)
+      (char<= #\u+2070 c #\u+218F)
+      (char<= #\u+2C00 c #\u+2FEF)
+      (char<= #\u+3001 c #\u+D7FF)
+      (char<= #\u+F900 c #\u+FDCF)
+      (char<= #\u+FDF0 c #\u+FFFD)
+      
+      ;; extended, UTF characters
+      ;(char<= #\u+10000 c #\u+EFFFF)
+      ))
+
+;;; ----------------------------------------------------
+
+(defun xml-letter-char-p (c)
+  "T if the character is a valid XML name character."
+  (or (xml-name-char-p c)
+                 
+      ;; one-off characters
+      (char= c #\-)
+      (char= c #\.)
+      (char= c #\u+00b7)
+                 
+      ;; digits
+      (char<= #\0 c #\9)
+                 
+      ;; unicode character ranges
+      (char<= #\u+0300 c #\u+036F)
+      (char<= #\u+203F c #\u+2040)))
+
+;;; ----------------------------------------------------
+
 (defun xml-name (p)
   "Parse an XML identifier name. Updates the parse position."
-  (labels ((name-char-p (c)
-             (or (char= c #\:)
-                 (char= c #\_)
-      
-                 ;; any ascii letter
-                 (char<= #\A c #\Z)
-                 (char<= #\a c #\z)
-      
-                 ;; acceptable unicode character ranges
-                 (char<= #\u+000C0 c #\u+000D6)
-                 (char<= #\u+000D8 c #\u+000F6)
-                 (char<= #\u+000F8 c #\u+002FF)
-                 (char<= #\u+00370 c #\u+0037D)
-                 (char<= #\u+0037F c #\u+01FFF)
-                 (char<= #\u+0200C c #\u+0200D)
-                 (char<= #\u+02070 c #\u+0218F)
-                 (char<= #\u+02C00 c #\u+02FEF)
-                 (char<= #\u+03001 c #\u+0D7FF)
-                 (char<= #\u+0F900 c #\u+0FDCF)
-                 (char<= #\u+0FDF0 c #\u+0FFFD)
-                 (char<= #\u+10000 c #\u+EFFFF)))
+  (let ((i (xml-parser-start p)))
+    (when (xml-name-char-p (char (xml-parser-string p) i))
+      (do ((c (char (xml-parser-string p) (incf i))
+              (char (xml-parser-string p) (incf i))))
+          ((not (xml-letter-char-p c))
+           (subseq (xml-parser-string p) (xml-parser-start p) (setf (xml-parser-start p) i)))))))
 
-           ;; subsequence letters
-           (letter-char-p (c)
-             (or (name-char-p c)
-                 
-                 ;; one-off characters
-                 (char= c #\-)
-                 (char= c #\.)
-                 (char= c #\u+00b7)
-                 
-                 ;; digits
-                 (char<= #\0 c #\9)
-                 
-                 ;; unicode character ranges
-                 (char<= #\u+00300 c #\u+0036F)
-                 (char<= #\u+0203F c #\u+02040))))
+;;; ----------------------------------------------------
 
-    ;; if the first character begins a name, keep reading until no more
-    (let ((i (xml-parser-start p)))
-      (when (name-char-p (char (xml-parser-string p) i))
-        (do ((c (char (xml-parser-string p) (incf i))
-                (char (xml-parser-string p) (incf i))))
-            ((not (letter-char-p c))
-             (subseq (xml-parser-string p) (xml-parser-start p) (setf (xml-parser-start p) i))))))))
+(defun xml-nm-token (p)
+  "Parse a series of one or more name characters."
+  (let ((i (xml-parser-start p)))
+    (when (xml-name-char-p (char (xml-parser-string p) i))
+      (do ((c (char (xml-parser-string p) (incf i))
+              (char (xml-parser-string p) (incf i))))
+          ((not (xml-name-char-p c))
+           (subseq (xml-parser-string p) (xml-parser-start p) (setf (xml-parser-start p) i)))))))
+
+;;; ----------------------------------------------------
+
+(defun xml-token-list (p token sep)
+  "Parse a list of separated tokens."
+  (flet ((next-token ()
+           (xml-space p)
+           (when-let (token (funcall token p))
+             (prog1 token
+               (xml-space p)))))
+    (loop collect (next-token) while (xml-string p sep))))
+
+;;; ----------------------------------------------------
+
+(defun xml-name-list (p sep)
+  "Parse a list of separated names."
+  (xml-token-list p #'xml-name sep))
+
+;;; ----------------------------------------------------
+
+(defun xml-nm-token-list (p sep)
+  "Parse a list of NM tokens."
+  (xml-token-list p #'xml-nm-token sep))
 
 ;;; ----------------------------------------------------
 
@@ -249,6 +290,72 @@
       (if (xml-char p #\;)
           (code-char code)
         (error "Invalid character reference")))))
+
+;;; ----------------------------------------------------
+
+(defun xml-attlist-tokenized-type (p)
+  "Parse one of the valid tokens for a ATTLIST definition."
+  (cond ((xml-string p "CDATA")    '(:cdata nil))
+        ((xml-string p "ID")       '(:id nil))
+        ((xml-string p "IDREF")    '(:idref nil))
+        ((xml-string p "IDREFS")   '(:idrefs nil))
+        ((xml-string p "ENTITY")   '(:entity nil))
+        ((xml-string p "ENTITIES") '(:entities nil))
+        ((xml-string p "NMTOKEN")  '(:nmtoken nil))
+        ((xml-string p "NMTOKENS") '(:nmtokens nil))))
+
+;;; ----------------------------------------------------
+
+(defun xml-attlist-enum-type (p)
+  "Parse an enumerated list of names or nm tokens."
+  (let ((notation-p (with-xml-parser (p "Malformed ATTLIST NOTATION enumeration") ("NOTATION" t) t)))
+    (prog1
+        (if (xml-char p #\()
+            (if-let (tokens (if notation-p
+                                (xml-nm-token-list p "|")
+                              (xml-name-list p "|")))
+                (list (if notation-p :notation :enum) tokens)
+              (error "Malformed ATTLIST enumeration"))
+          (error "Malformed ATTLIST enumeration"))
+      (xml-char p #\)))))
+
+;;; ----------------------------------------------------
+
+(defun xml-attlist-type (p)
+  "Parse an ATTLIST rule type."
+  (or (xml-attlist-tokenized-type p)
+      (xml-attlist-enum-type p)
+
+      ;; not a valid attribute list rule definition type
+      (error "Unknown ATTLIST rule type")))
+
+;;; ----------------------------------------------------
+
+(defun xml-attlist-default-decl (p)
+  "Parse an ATTLIST rule default declaration."
+  (cond ((xml-string p "#REQUIRED") '(:required nil))
+        ((xml-string p "#IMPLIED")  '(:implied nil))
+
+        ;; optionally allow for a #FIXED attribute value
+        (t (or (with-xml-parser (p "Malformed ATTLIST default declaration")
+                   ("#FIXED" t (value xml-value))
+                 (list :fixed value))
+
+               ;; no #FIXED, but supply the value
+               (when-let (value (xml-value p))
+                 (list :fixed value))
+
+               ;; invalid default declaration
+               (error "Malformed ATTLIST default declaration")))))
+
+;;; ----------------------------------------------------
+
+(defun xml-attlist-rule-def (p)
+  "Parse an ATTLIST definition rule."
+  (when (xml-space p)
+    (with-xml-parser (p "Malformed ATTLIST rule definition")
+        ((name xml-name) t (type xml-attlist-type) t (def xml-attlist-default-decl))
+      (append (list name) type def))))
 
 ;;; ----------------------------------------------------
 
@@ -444,6 +551,32 @@
 
 ;;; ----------------------------------------------------
 
+(defun xml-notation-decl (p context)
+  "Parse a NOTATION declaration."
+  (with-xml-parser (p "Malformed NOTATION declaration")
+      ("<!NOTATION" t (name xml-name) t (ref xml-external-ref))
+    (destructuring-bind (system &optional public)
+        ref
+      (xml-space p)
+      (if (xml-char p #\>)
+          (prog1 t
+            (sax:notation-declaration context name system public))
+        (error "Malformed NOTATION declaration")))))
+
+;;; ----------------------------------------------------
+
+(defun xml-attlist-decl (p context)
+  "Parse an ATTLIST declaration in the DTD."
+  (with-xml-parser (p "Malformed ATTLIST declaration") ("<!ATTLIST" t (name xml-name))
+    (loop for rule = (xml-attlist-rule-def p)
+          while rule
+          do (apply #'sax:attribute-declaration context name rule)
+          finally (return (progn
+                            (xml-space p)
+                            (xml-char p #\>))))))
+
+;;; ----------------------------------------------------
+
 (defun xml-dtd (p context &optional recursive-p)
   "Parse the document type definition internal subset."
   (loop until (if recursive-p
@@ -455,10 +588,10 @@
                (xml-comment p context)
                (xml-processing-instruction p context)
                (xml-entity-decl p context)
+               (xml-notation-decl p context)
+               (xml-attlist-decl p context)
 
-               ;; parse notations
                ;; parse elements
-               ;; parse attributes
 
                ;; expand parameter entity references
                (when (xml-char p #\%)
@@ -517,7 +650,7 @@
 
 ;;; ----------------------------------------------------
 
-(defmethod xml-cdata ((p xml-parser) context)
+(defun xml-cdata (p context)
   "Parse a CDATA section."
   (with-xml-parser (p "Malformed CDATA") ("<![CDATA[" (data xml-scan "]]>"))
     (prog1 t

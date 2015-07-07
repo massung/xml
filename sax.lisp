@@ -78,7 +78,7 @@
 
 (defmethod notation-declaration (context name system public))
 (defmethod element-declaration (context name))
-(defmethod attribute-declaration (context name))
+(defmethod attribute-declaration (context name rule rule-type values def-type def-value))
 
 ;;; ----------------------------------------------------
 

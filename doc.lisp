@@ -33,6 +33,9 @@
 
    ;; parsed doctype accessors
    #:xml-doctype-name
+   #:xml-doctype-notations
+   #:xml-doctype-entities
+   #:xml-doctype-param-entities
 
    ;; parsed node accessors
    #:xml-node-doc
@@ -64,6 +67,8 @@
 
 (defclass xml-doctype (xml-external-ref)
   ((name            :initarg :name            :accessor xml-doctype-name            :initform nil)
+   (notations       :initarg :notations       :accessor xml-doctype-notations       :initform nil)
+   (attributes      :initarg :attributes      :accessor xml-doctype-attributes      :initform nil)
    (entities        :initarg :entities        :accessor xml-doctype-entities        :initform nil)
    (param-entities  :initarg :param-entities  :accessor xml-doctype-param-entities  :initform nil))
   (:documentation "A !DOCTYPE reference."))
@@ -79,7 +84,24 @@
 
 (defclass xml-entity (xml-node xml-external-ref)
   ((ndata           :initarg :ndata           :accessor xml-entity-ndata            :initform nil))
-  (:documentation "An !ENTITY declaration in the DTD."))
+  (:documentation "An ENTITY declaration in the DTD."))
+
+(defclass xml-notation (xml-node xml-external-ref)
+  ()
+  (:documentation "A NOTATION declaration in the DTD."))
+
+(defclass xml-attlist ()
+  ((name            :initarg :name            :accessor xml-attlist-name            :initform nil)
+   (rules           :initarg :rules           :accessor xml-attlist-rules           :initform nil))
+  (:documentation "An ATTLIST declaration in the DTD."))
+
+(defclass xml-attlist-rule ()
+  ((name            :initarg :name            :accessor xml-attlist-rule-name       :initform nil)
+   (type            :initarg :type            :accessor xml-attlist-rule-type       :initform nil)
+   (valid-values    :initarg :values          :accessor xml-attlist-rule-values     :initform nil)
+   (def-type        :initarg :def-type        :accessor xml-attlist-rule-def-type   :initform nil)
+   (def-value       :initarg :def-value       :accessor xml-attlist-rule-def-value  :initform nil))
+  (:documentation "A rule in an ATTLIST."))
 
 (defclass xml-tag (xml-node)
   ((elements        :initarg :elements        :accessor xml-tag-elements            :initform nil)
@@ -170,9 +192,36 @@
 
 ;;; ----------------------------------------------------
 
-;(defmethod notation-declaration ((doc xml-doc) name system public))
+(defmethod notation-declaration ((doc xml-doc) name system public)
+  "Create a new notation."
+  (let ((notation (make-instance 'xml-notation :name name :system system :public public)))
+    (push notation (xml-doctype-notations (xml-doc-doctype doc)))))
+
 ;(defmethod element-declaration ((doc xml-doc) name))
-;(defmethod attribute-declaration ((doc xml-doc) name))
+
+
+(defmethod attribute-declaration ((doc xml-doc) name rule rule-type values def-type def-value)
+  "Create a new attribute."
+  (let ((doctype (xml-doc-doctype doc)))
+    (with-slots ((atts attributes))
+        doctype
+
+      ;; find the attribute list in the doctype
+      (let ((attlist (or (find name atts :test #'string= :key #'xml-attlist-name)
+
+                         ;; doesn't exist yet, create a new one and push it
+                         (first (push (make-instance 'xml-attlist :name name) atts))))
+
+            ;; create a new rule
+            (rule (make-instance 'xml-attlist-rule
+                                 :name rule
+                                 :type rule-type
+                                 :values values
+                                 :def-type def-type
+                                 :def-value def-value)))
+
+        ;; add the rule to the attribute
+        (push rule (xml-attlist-rules attlist))))))
 
 ;;; ----------------------------------------------------
 
