@@ -1,13 +1,6 @@
 <?xml version='1.0' encoding='utf-8' standalone='yes'?>
 <!DOCTYPE root SYSTEM "http://some.url" [
 
-<!-- comment in the dtd -->
-<!ENTITY % parameter-entity "ignored">
-<!ENTITY unparsed-entity "unparsed" NDATA png>
-<!ENTITY parsed-entity "parsed &amp; expanded">
-
-<?processing instruction?>
-
 ]>
 
 <?another processing instruction?>

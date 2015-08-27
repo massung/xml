@@ -250,7 +250,7 @@
   ("[%s%n]*%[" (push-lexer s 'xml-dtd-lexer :dtd))
 
   ;; end of doctype
-  ("[%s%n]*>" (pop-lexer s :end-doctype)))
+  ("[%s%n]*>" (pop-lexer s (print :end-doctype))))
 
 ;;; ----------------------------------------------------
 
@@ -402,7 +402,8 @@
          (.maybe 'xml-dtd-parser)
 
          ;; finish the doctype or fail
-         (.is :end-doctype)
+         (.either (.is :end-doctype)
+                  (.fail "Missing '>' in DOCTYPE"))
 
          ;; return the doctype
          (.get))))
@@ -417,7 +418,8 @@
        (.skip-many 'xml-dtd-elements-parser)
 
        ;; end the dtd
-       (.is :end-dtd)))
+       (.either (.is :end-foo)
+                (.fail "Missing ']' in DTD."))))
 
 ;;; ----------------------------------------------------
 
