@@ -8,9 +8,7 @@
   :version "1.0"
   :author "Jeffrey Massung"
   :license "Apache 2.0"
-  :description "XML parsing for LispWorks."
+  :description "Non-validating XML parsing for Common Lisp."
   :serial t
-  :components ((:file "sax")
-               (:file "doc")
-               (:file "xml")
-               (:file "parser")))
+  :components ((:file "xml"))
+  :depends-on ("parse" "re" "lexer" "markup"))
