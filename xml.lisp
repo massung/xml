@@ -672,7 +672,7 @@
 
 (defmethod xml-query ((tag xml-tag) path)
   "Recursively descend into a tag finding child tags with a given path."
-  (let* ((path-elts (split-re #r"/" path))
+  (let* ((path-elts (split-re #r"/" path :all t))
 
          ;; determine which tags to search (breadth-first)
          (tags (cond ((null path-elts))
