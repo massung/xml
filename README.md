@@ -51,81 +51,67 @@ Additionally, there is `xml-query-attribute`, which can find an attribute from w
 
 With both `xml-query` and `xml-query-attribute`, passing the document object will simply run the query on the root tag.
 
-## What Does XML Parse?
+## What Does It Parse?
 
-The XML package can parse *all* valid XML files. While the parse is non-validating, it does do the following (in addition to typical parsing of tags):
+The XML package can parse *all* valid XML files.
 
-* DOCTYPE and DTD
-* ENTITY tags
-* Parameter ENTITY tags
-* Loading SYSTEM references
-* Proper expansion of entities!
-* Embedding of parameter entities within the DTD
-* Processing instructions
+Since it is non-validating, it will parse - but ignore - ELEMENT, ATTLIST, and NOTATION declarations in the DTD. It also ignores processing instructions. It does process ENTITY declarations, but will skip over parameter entity references in the DTD.
 
-Special attention should be noted on "proper expansion of entities". Many smaller XML parsers do not do this opting to completely ignore the DTD all-together. For example, many XML parsers will get this wrong (taken from [http://www.w3.org/TR/REC-xml/](http://www.w3.org/TR/REC-xml/)):
+It will parse INCLUDE blocks of the DTD and ignore IGNORE blocks, but it since it doesn't expand parameter entity references, this really doesn't matter much.
 
-    <!DOCTYPE tricky [
-    <!ENTITY % xx '&#37;zz;'>
-    <!ENTITY % zz '&#60;!ENTITY tricky "error-prone">'>
-    %xx;
-    ]>
-    <tricky>This is &tricky;...</tricky>
-
-The above should contain a tag (tricky) with the inner text value "This is error-prone...". Note the use of parameter entities, proper expansion (at the proper time), recursive expansion, and expansion within the DTD.
-
-Additionally, processing instructions are parsed and kept with either the document or the tag (if parsed from within a tag), and can be viewed afterwards.
+Most importantly, it *will* track all external references in the DOCTYPE and ENTITY declarations (i.e. SYSTEM and PUBLIC references), and you have access to them, but it will not automatically resolve them.
 
 ## Exported Methods
 
-The `XML` package is pretty sparse by design. There are a couple functions for parsing from a source file or string, and searching a document for tags using a path. All other methods exposed are accessors in the `xml-doc`, `xml-node`, or a few other classes.
+The `XML` package is pretty sparse by design.
+
+There are a couple functions for parsing from a source file or string, and searching a document for tags using a path. All other methods exposed are accessors in the `xml-doc`, `xml-node`, or a few other classes.
 
 #### Parsing and Loading XML Files
 
-    (xml-parse string &optional source)              ;=> xml-doc
-    (xml-load pathname)                              ;=> xml-doc
+    (xml-parse string &optional source)     ;=> xml-doc
+    (xml-load pathname)                     ;=> xml-doc
 
 #### Traverse/Query Methods
 
-    (xml-query xml-tag path &key all)                ;=> xml-tags
-    (xml-query xml-doc path &key all)                ;=> xml-tags
-
-    (xml-query-attribute xml-tag name)               ;=> xml-attribute
-    (xml-query-attribute xml-doc name)               ;=> xml-attribute
+    (xml-query [tag|doc] path)              ;=> xml-tags
+    (xml-query-attribute [tag|doc] name)    ;=> xml-attribute
 
 #### `xml-doc` methods
 
-    (xml-doc-source xml-doc)                         ;=> pathname
-    (xml-doc-version xml-doc)                        ;=> string
-    (xml-doc-encoding xml-doc)                       ;=> keyword
-    (xml-doc-standalone xml-doc)                     ;=> boolean
-    (xml-doc-root xml-doc)                           ;=> xml-tag
-    (xml-doc-doctype xml-doc)                        ;=> xml-doctype
-    (xml-doc-entities xml-doc)                       ;=> xml-entities
-    (xml-doc-instructions xml-doc)                   ;=> xml-processing-instructions
+    (xml-doc-source xml-doc)                ;=> pathname
+    (xml-doc-version xml-doc)               ;=> string
+    (xml-doc-encoding xml-doc)              ;=> keyword
+    (xml-doc-standalone xml-doc)            ;=> boolean
+    (xml-doc-root xml-doc)                  ;=> xml-tag
+    (xml-doc-doctype xml-doc)               ;=> xml-doctype
 
-#### `xml-external-ref` methods
+#### `xml-ref` methods
 
-    (xml-external-ref-public-id xml-external-ref)    ;=> string
-    (xml-external-ref-system-uri xml-external-ref)   ;=> string
+    (xml-ref-public-id xml-external-ref)    ;=> string
+    (xml-ref-system-uri xml-external-ref)   ;=> string
 
-#### `xml-doctype` methods (subclass of `xml-external-ref`)
+#### `xml-doctype` methods (subclass of `xml-ref`)
 
-    (xml-doctype-root xml-doctype)                   ;=> string
+    (xml-doctype-root xml-doctype)          ;=> string
+    (xml-doctype-entities xml-doctyoe)      ;=> xml-entities
 
 #### `xml-node` methods
 
-    (xml-node-doc xml-node)                          ;=> xml-doc
-    (xml-node-name xml-node)                         ;=> string
-    (xml-node-value xml-node)                        ;=> string
+    (xml-node-doc xml-node)                 ;=> xml-doc
+    (xml-node-name xml-node)                ;=> string
+    (xml-node-value xml-node)               ;=> string
+
+#### `xml-entity` methods (subclass of `xml-ref` and `xml-node`)
+
+    (xml-entity-ndata xml-entity)           ;=> string
 
 #### `xml-tag` methods (subclass of `xml-node`)
 
-    (xml-tag-attributes xml-tag)                     ;=> xml-attributes
-    (xml-tag-elements xml-tag)                       ;=> xml-tags
-    (xml-tag-instructions xml-tag)                   ;=> xml-processing-instructions
+    (xml-tag-attributes xml-tag)            ;=> xml-attributes
+    (xml-tag-elements xml-tag)              ;=> xml-tags
 
-Processing instructions and attributes are simple subclasses of `xml-node`. The entity class is both a subclass of `xml-node` and `xml-external-ref`.
+Attributes (`xml-attribute`) is a simple subclass of `xml-node` and has no special methods of its own.
 
 That's it!
 
