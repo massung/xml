@@ -68,6 +68,7 @@
   ((source     :initarg :source     :accessor xml-doc-source)
    (version    :initarg :version    :accessor xml-doc-version)
    (encoding   :initarg :encoding   :accessor xml-doc-encoding)
+   (standalone :initarg :standalone :accessor xml-doc-standalone)
    (doctype    :initarg :doctype    :accessor xml-doc-doctype)
    (root       :initarg :root       :accessor xml-doc-root))
   (:documentation "Basic XML document parsing context."))
@@ -93,6 +94,12 @@
    (name       :initarg :name       :accessor xml-node-name)
    (value      :initarg :value      :accessor xml-node-value))
   (:documentation "A generic element."))
+
+;;; ----------------------------------------------------
+
+(defclass xml-entity (xml-ref xml-node)
+  ((ndata      :initarg :ndata      :accessor xml-entity-ndata))
+  (:documentation "A parsed or unparsed entity."))
 
 ;;; ----------------------------------------------------
 
@@ -200,6 +207,21 @@
 
 ;;; ----------------------------------------------------
 
+(defun parsed-entity-ref (doctype ref)
+  "Return the expanded, parsed entity reference value."
+  (when doctype
+    (let* ((entities (xml-doctype-entities doctype))
+           (entity (find ref
+                         entities
+                         :test #'string=
+                         :key #'xml-node-name)))
+      (when entity
+        (if (xml-entity-ndata entity)
+            (warn "Cannot parse unparsed entity ~s" ref)
+          (xml-node-value entity))))))
+
+;;; ----------------------------------------------------
+
 (define-lexer xml-lexer (s)
 
   ;; xml declaration
@@ -211,11 +233,12 @@
 
   ;; document type declaration
   ("<!DOCTYPE[%s%n]+(%:xml-name-char-p:%:xml-token-char-p:*)"
-   (push-lexer s 'xml-doctype-lexer :doctype))
+   (push-lexer s 'xml-doctype-lexer :doctype $1))
 
   ;; processing instruction
   ("<%?(%:xml-name-char-p:%:xml-token-char-p:*)[%s%n]+(.-)%?>"
-   (values :processing-instruction (list $1 $2)))
+   (prog1 :next-token
+     (warn "Skipping processing instruction ~s..." $1)))
 
   ;; root tag
   ("<(%:xml-name-char-p:%:xml-token-char-p:*)"
@@ -244,13 +267,13 @@
   ("[%s%n]+SYSTEM[%s%n]+(?'(.-)'|\"(.-)\")"
    (values :system (list $1)))
   ("[%s%n]+PUBLIC[%s%n]+(?'(.-)'|\"(.-)\")[%s%n]+(?'(.-)'|\"(.-)\")"
-   (values s :public (list $2 $1)))
+   (values :public (list $2 $1)))
 
   ;; internal document type declaration
   ("[%s%n]*%[" (push-lexer s 'xml-dtd-lexer :dtd))
 
   ;; end of doctype
-  ("[%s%n]*>" (pop-lexer s (print :end-doctype))))
+  ("[%s%n]*>" (pop-lexer s :end-doctype)))
 
 ;;; ----------------------------------------------------
 
@@ -261,7 +284,8 @@
 
   ;; processing instruction
   ("<%?(%:xml-name-char-p:%:xml-token-char-p:*)[%s%n]+(.-)%?>"
-   (values :processing-instruction (list $1 $2)))
+   (prog1 :next-token
+     (warn "Skipping processing instruction ~s..." $1)))
 
   ;; skip parameter entities, and warn
   ("%%(%:xml-name-char-p:%:xml-token-char-p:*);"
@@ -272,7 +296,7 @@
   ("<!ENTITY[%s%n]+%%[%s%n]+(%:xml-name-char-p:%:xml-token-char-p:*)"
    (push-lexer s 'xml-dtd-element-lexer :dtd-element))
   ("<!ENTITY[%s%n]+(%:xml-name-char-p:%:xml-token-char-p:*)"
-   (push-lexer s 'xml-entity-lexer :entity-decl))
+   (push-lexer s 'xml-entity-lexer :entity-decl $1))
 
   ;; non-entity declarations (non-validating, so skip)
   ("<!(%u+)[%s%n]+" (push-lexer s 'xml-dtd-element-lexer :dtd-element $1))
@@ -361,8 +385,14 @@
 (define-parser xml-parser
   "An XML SAX parser."
   (.let* ((decl (.opt nil 'xml-decl-parser))
+
+          ;; optional document type declaration
           (doctype (.opt nil 'xml-doctype-parser))
-          (root (.opt nil 'xml-tag-parser)))
+
+          ;; the root tag is the only required element
+          (root 'xml-tag-parser))
+
+    ;; return the components of the xml file
     (.ret (list decl doctype root))))
 
 ;;; ----------------------------------------------------
@@ -371,17 +401,18 @@
   "An <?xml..?> declaration."
   (.do (.is :xml)
 
-       ;; read the version
-       (.let* ((version (.opt "1.0" (.is :version)))
+       ;; read the version, which is not optional
+       (.let* ((version (.is :version))
+
+               ;; the encoding and standalone flag are both optional
                (encoding (.opt "utf-8" (.is :encoding)))
                (standalone (.opt "no" (.is :standalone))))
 
          ;; close the declaration and return
-         (.do (.or (.is :end-xml)
-                   (.fail "Missing expected '?>' in declaration"))
+         (.do (.is :end-xml)
 
               ;; return the declaration attributes
-              (.ret (list version (xml-external-format encoding)))))))
+              (.ret (list version encoding standalone))))))
 
 ;;; ----------------------------------------------------
 
@@ -390,80 +421,58 @@
   (.let* ((root (.is :doctype))
 
           ;; document can have an optional external reference
-          (external-ref (.opt nil (.is :external-ref))))
+          (external-ref (.opt nil (.or (.is :system)
+                                       (.is :public))))
 
-    ;; check for an internal subset DTD
-    (.do (.put (make-instance 'xml-doctype
-                              :root root
-                              :system-uri (first external-ref)
-                              :public-id (second external-ref)))
+          ;; optionally parse any internal subset DTD
+          (dtd (.opt nil 'xml-dtd-parser)))
 
-         ;; check for internal subset
-         (.maybe 'xml-dtd-parser)
+      ;; finish the doctype
+    (.do (.is :end-doctype)
 
-         ;; finish the doctype or fail
-         (.either (.is :end-doctype)
-                  (.fail "Missing '>' in DOCTYPE"))
-
-         ;; return the doctype
-         (.get))))
+         ;; return the DTD parsed (if any)
+         (.ret (list root external-ref dtd)))))
 
 ;;; ----------------------------------------------------
 
 (define-parser xml-dtd-parser
   "Internal subset document type declaration."
-  (.do (.is :dtd)
-
-       ;; read all the elements
-       (.skip-many 'xml-dtd-elements-parser)
-
-       ;; end the dtd
-       (.either (.is :end-foo)
-                (.fail "Missing ']' in DTD."))))
+  (.between (.is :dtd) (.is :end-dtd) (.many 'xml-elements-parser)))
 
 ;;; ----------------------------------------------------
 
-(define-parser xml-dtd-elements-parser
+(define-parser xml-elements-parser
   "All the element delcarations of the DTD."
-  (.or (.is :processing-instruction)
-
-       ;; entity declarations
-       'xml-entity-parser
+  (.or 'xml-entity-parser
 
        ;; other declarations are skipped
-       (.do (.is :dtd-element)
-            (.is :end-dtd-element))))
+       (.ignore (.do (.is :dtd-element)
+                     (.is :end-dtd-element)))))
 
 ;;; ----------------------------------------------------
 
 (define-parser xml-entity-parser
   "Entity declarations in the DTD."
-  (.let (name (.is :entity-decl))
+  (.let* ((name (.is :entity-decl))
 
-    ;; the value can be parsed, unparsed, or an external reference
-    (.do (.or (.let* ((value (.is :value))
+          ;; the value can be parsed, unparsed, or an external reference
+          (entity (.or (.let* ((value (.is :value))
 
-                      ;; optionally an unparsed NDATA type
-                      (ndata (.opt nil (.is :ndata))))
+                               ;; optionally an unparsed NDATA type
+                               (ndata (.opt nil (.is :ndata))))
 
-                ;; if there's no NDATA, it is a parsed entity
-                (if ndata
-                    (.let (doctype (.get))
-                      (.ret (push (cons name value)
-                                  (xml-doctype-entities doctype))))
-                  (.ret nil)))
+                         ;; if there's no NDATA, it is a parsed entity
+                         (.ret (list name nil value ndata)))
 
-              ;; external reference?
-              (.is :external-ref))
+                       ;; external reference?
+                       (.let (ref (.is :external-ref))
+                         (.ret (list name ref nil nil))))))
 
-         ;; end the entity
-         (.is :end-dtd-element))))
+    ;; end the entity
+    (.do (.is :end-dtd-element)
 
-;;; ----------------------------------------------------
-
-(define-parser xml-misc-parser
-  "Processing instructions."
-  (.skip-many (.is :processing-instruction)))
+         ;; return it
+         (.ret entity))))
 
 ;;; ----------------------------------------------------
 
@@ -514,28 +523,27 @@
 
 ;;; ----------------------------------------------------
 
-(defun expand-entity-refs (string)
+(defun expand-entity-refs (doc string)
   "Use the document entities to expand a string."
-  (let ((dtd (xml-doc-doctype *xml-doc*)))
-    (markup-decode string :entities (and dtd (xml-doctype-entities dtd)))))
+  (let ((dtd (xml-doc-doctype doc)))
+    (markup-decode string #'(lambda (ref)
+                              (parsed-entity-ref dtd ref)))))
 
 ;;; ----------------------------------------------------
 
-(defun build-attribute (att)
+(defun build-attribute (doc k v)
   "Construct an xml-attribute, decoding the value."
-  (destructuring-bind (k v)
-      att
-    (make-instance 'xml-attribute
-                   :doc *xml-doc*
-                   :name k
-                   :value (expand-entity-refs v))))
+  (make-instance 'xml-attribute
+                 :doc doc
+                 :name k
+                 :value (expand-entity-refs doc v)))
 
 ;;; ----------------------------------------------------
 
-(defun build-tag (parent name atts &rest inner-xml)
+(defun build-tag (doc parent name atts &rest inner-xml)
   "Construct an xml-tag from a parsed form."
   (let ((tag (make-instance 'xml-tag
-                            :doc *xml-doc*
+                            :doc doc
                             :name name
                             :value nil
                             :attributes nil
@@ -544,7 +552,8 @@
     (prog1 tag
 
       ;; construct the attributes
-      (setf (xml-tag-attributes tag) (mapcar #'build-attribute atts))
+      (setf (xml-tag-attributes tag)
+            (loop for (k v) in atts collect (build-attribute doc k v)))
 
       ;; construct the inner-xml
       (loop
@@ -558,7 +567,7 @@
 
          ;; collect child tags
          when (eq etype :tag)
-         collect (apply 'build-tag tag (rest e))
+         collect (apply 'build-tag doc tag (rest e))
          into child-tags
 
          ;; cdata is written as-is
@@ -567,7 +576,8 @@
 
          ;; inner text needs to be decoded and written
          when (eq etype :inner-text)
-         do (write-string (expand-entity-refs (second e)) inner-text)
+         do (let ((text (expand-entity-refs doc (second e))))
+              (write-string text inner-text))
 
          ;; set the child elemnets
          finally (setf (xml-tag-elements tag) child-tags
@@ -578,31 +588,79 @@
 
 ;;; ----------------------------------------------------
 
-(defun build-doc (decl doctype root)
+(defun build-dtd (doc root &optional ref elements)
+  "Create the doctype from all the elements of the DTD."
+  (flet ((make-entity (name ref value ndata)
+           (make-instance 'xml-entity
+                          :doc doc
+                          :name name
+                          :system-uri (first ref)
+                          :public-id (second ref)
+                          :value value
+                          :ndata ndata)))
+
+    ;; construct the document type declaration
+    (make-instance 'xml-doctype
+                   :root root
+                   :system-uri (first ref)
+                   :public-id (second ref)
+                   :entities (loop
+                                for e in elements
+                                when e
+                                collect (apply #'make-entity e)))))
+
+;;; ----------------------------------------------------
+
+(defun build-doc (source decl doctype root-tag)
   "Construct the xml-doc from the parsed forms."
-  (destructuring-bind (&optional (version "1.0") (encoding :utf-8))
-      decl
-    (setf (xml-doc-version *xml-doc*) version
-          (xml-doc-encoding *xml-doc*) encoding))
+  (let ((doc (make-instance 'xml-doc
+                            :source source
+                            :version "1.0"
+                            :encoding :utf-8
+                            :standalone nil
+                            :doctype nil
+                            :root nil)))
+    (prog1 doc
 
-  ;; set the doctype if present
-  (setf (xml-doc-doctype *xml-doc*) doctype)
+      ;; was there an xml declaration?
+      (when decl
+        (destructuring-bind (version &optional encoding standalone)
+            decl
+          (setf (xml-doc-version doc) version)
 
-  ;; construct the root tag
-  (setf (xml-doc-root *xml-doc*)
-        (apply 'build-tag nil (rest root))))
+          ;; optionally set the encoding
+          (when encoding
+            (setf (xml-doc-encoding doc)
+                  (xml-external-format encoding)))
+
+          ;; optionally set the standalone flag
+          (when standalone
+            (setf (xml-doc-standalone doc)
+                  (string-equal standalone "yes")))))
+
+      ;; build the document type declaration if present
+      (when doctype
+        (setf (xml-doc-doctype doc)
+              (apply 'build-dtd doc doctype)))
+
+      ;; construct the root tag
+      (setf (xml-doc-root doc)
+            (apply 'build-tag doc nil (rest root-tag))))))
 
 ;;; ----------------------------------------------------
 
 (defun xml-parse (string &optional source)
   "Parse a string as XML."
-  (let ((*xml-doc* (make-instance 'xml-doc :source source)))
-;    (prog1 *xml-doc*
-      (with-lexer (lexer 'xml-lexer string :source source)
-        (with-token-reader (next-token lexer)
-          (let ((*markup-entity-start-char-p* 'xml-name-char-p)
-                (*markup-entity-char-p* 'xml-token-char-p))
-            (parse 'xml-parser next-token))))))
+  (let ((spec (with-lexer (lexer 'xml-lexer string :source source)
+                (with-token-reader (next-token lexer)
+                  (parse 'xml-parser next-token))))
+
+        ;; setup the markup entity name predicates for xml
+        (*markup-entity-start-char-p* 'xml-name-char-p)
+        (*markup-entity-char-p* 'xml-token-char-p))
+
+    ;; construct the document from the spec
+    (apply 'build-doc source spec)))
 
 ;;; ----------------------------------------------------
 

@@ -1,6 +1,6 @@
 <?xml version='1.0' encoding='utf-8' standalone='yes'?>
-<!DOCTYPE root SYSTEM "http://some.url" [
-
+<!DOCTYPE root SYSTEM 'http://some.url' [
+<!ENTITY parsed-entity "foobar">
 ]>
 
 <?another processing instruction?>
