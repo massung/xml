@@ -682,8 +682,8 @@
                       (prog1 (list (xml-doc-root (xml-node-doc tag)))
                         (pop path-elts)))
 
-                     ;; search this tag
-                     (t (list tag)))))
+                     ;; search all the child elements of this tag
+                     (t (xml-tag-elements tag)))))
 
     ;; search each path element
     (do ((path (pop path-elts)
@@ -710,7 +710,8 @@
 
 (defmethod xml-query-attribute ((tag xml-tag) name)
   "Return an attribute with the given name from a tag if found."
-  (find name (xml-tag-attributes tag) :test #'string= :key #'xml-node-name))
+  (let ((atts (xml-tag-attributes tag)))
+    (find name atts :test #'string= :key #'xml-node-name)))
 
 ;;; ----------------------------------------------------
 
