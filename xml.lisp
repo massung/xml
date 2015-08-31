@@ -40,11 +40,15 @@
 
    ;; doctype accessors
    #:xml-doctype-root
+   #:xml-doctype-entities
 
    ;; parsed node accessors
    #:xml-node-doc
    #:xml-node-name
    #:xml-node-value
+
+   ;; entity accessors
+   #:xml-entity-ndata
 
    ;; parsed tag accessors
    #:xml-tag-elements
@@ -151,10 +155,7 @@
       (char<= #\u+2C00 c #\u+2FEF)
       (char<= #\u+3001 c #\u+D7FF)
       (char<= #\u+F900 c #\u+FDCF)
-      (char<= #\u+FDF0 c #\u+FFFD)
-
-      ;; extended, UTF characters
-      (char<= #\u+10000 c #\u+EFFFF)))
+      (char<= #\u+FDF0 c #\u+FFFD)))
 
 ;;; ----------------------------------------------------
 
@@ -367,7 +368,8 @@
 
   ;; processing instruction
   ("<%?(%:xml-name-char-p:%:xml-token-char-p:*)[%s%n]+(.-)%?>"
-   (values :processing-instruction (list $1 $2)))
+   (prog1 :next-token
+     (warn "Skipping processing instruction ~s..." $1)))
 
   ;; end tag
   ("</(%:xml-name-char-p:%:xml-token-char-p:*)[%s%n]*>"
