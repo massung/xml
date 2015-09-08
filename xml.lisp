@@ -42,9 +42,12 @@
    #:xml-doctype-root
 
    ;; parsed node accessors
-   #:xml-node-doc
    #:xml-node-name
    #:xml-node-value
+
+   ;; generic element accessors
+   #:xml-element-ns
+   #:xml-element-doc
 
    ;; parsed tag accessors
    #:xml-tag-elements
@@ -75,6 +78,19 @@
 
 ;;; ----------------------------------------------------
 
+(defclass xml-node ()
+  ((name       :initarg :name       :accessor xml-node-name)
+   (value      :initarg :value      :accessor xml-node-value))
+  (:documentation "A generic element."))
+
+;;; ----------------------------------------------------
+
+(defclass xml-namespace (xml-node)
+  ()
+  (:documentation "Unique xml-node identifier."))
+
+;;; ----------------------------------------------------
+
 (defclass xml-ref ()
   ((public-id  :initarg :public-id  :accessor xml-ref-public-id)
    (system-uri :initarg :system-uri :accessor xml-ref-system-uri))
@@ -89,10 +105,9 @@
 
 ;;; ----------------------------------------------------
 
-(defclass xml-node ()
-  ((doc        :initarg :doc        :accessor xml-node-doc)
-   (name       :initarg :name       :accessor xml-node-name)
-   (value      :initarg :value      :accessor xml-node-value))
+(defclass xml-element (xml-node)
+  ((ns         :initarg :namespace  :accessor xml-element-ns)
+   (doc        :initarg :document   :accessor xml-element-doc))
   (:documentation "A generic element."))
 
 ;;; ----------------------------------------------------
@@ -103,15 +118,16 @@
 
 ;;; ----------------------------------------------------
 
-(defclass xml-tag (xml-node)
-  ((elts       :initarg :elements   :accessor xml-tag-elements)
+(defclass xml-tag (xml-element)
+  ((nss        :initarg :namespaces :accessor xml-tag-namespaces)
+   (elts       :initarg :elements   :accessor xml-tag-elements)
    (parent     :initarg :parent     :accessor xml-tag-parent)
    (atts       :initarg :attributes :accessor xml-tag-attributes))
   (:documentation "An XML tag with attributes and inner-text value."))
 
 ;;; ----------------------------------------------------
 
-(defclass xml-attribute (xml-node)
+(defclass xml-attribute (xml-element)
   ()
   (:documentation "An attribute key/value pair."))
 
@@ -534,7 +550,7 @@
 (defun build-attribute (doc k v)
   "Construct an xml-attribute, decoding the value."
   (make-instance 'xml-attribute
-                 :doc doc
+                 :document doc
                  :name k
                  :value (expand-entity-refs doc v)))
 
@@ -543,11 +559,12 @@
 (defun build-tag (doc parent name atts &rest inner-xml)
   "Construct an xml-tag from a parsed form."
   (let ((tag (make-instance 'xml-tag
-                            :doc doc
+                            :document doc
                             :name name
                             :value nil
                             :attributes nil
                             :elements nil
+                            :namesapces nil
                             :parent parent)))
     (prog1 tag
 
@@ -679,7 +696,7 @@
 
                      ;; the first path is empty, start at the root
                      ((string= (first path-elts) "")
-                      (prog1 (list (xml-doc-root (xml-node-doc tag)))
+                      (prog1 (list (xml-doc-root (xml-element-doc tag)))
                         (pop path-elts)))
 
                      ;; search all the child elements of this tag
