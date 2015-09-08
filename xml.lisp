@@ -566,7 +566,7 @@
                             :value nil
                             :attributes nil
                             :elements nil
-                            :namesapces nil
+                            :namespaces nil
                             :parent parent)))
     (prog1 tag
 
