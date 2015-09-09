@@ -35,15 +35,13 @@ Querying is not an xpath, but it does allow for speedy finding of elements withi
     CL-USER > (setf doc (xml-load #p"test/rss.xml"))
     #<XML::XML-DOC "rss">
 
-    CL-USER > (xml-query doc "/*//item/title" :all t)
+    CL-USER > (xml-query doc "/*//item/title")
     (#<XML::XML-TAG "title">
      #<XML::XML-TAG "title">
      #<XML::XML-TAG "title">
      ...)
 
 It should be noted that if the path begins with '/' then the document root is always the start of the search. Likewise, any subpath that is an empty string or "*" is considered a wildcard and will match all tags.
-
-By default, the *all* parameter is NIL and only the first match will be returned. This is the first match in the tree as it appears in the document.
 
 Additionally, there is `xml-query-attribute`, which can find an attribute from with a tag.
 
@@ -87,7 +85,7 @@ In the above example, the `xml-element-namespace` for the *root* tag will be NIL
 
 ## Querying with Namespaces
 
-Querying for tags and attributes can also use namespaces. You can filter by namespace as well as wildcarding (empty name or *) using a namespace. Using the *rdf.xml* example in the test folder:
+Querying for tags and attributes can also use namespaces. You can filter by namespace as well as wildcarding (empty name or "*") using a namespace. Using the *rdf.xml* example in the test folder:
 
     CL-USER > (setf rdf (xml-load #p"test/rdf.xml"))
     #<XML-DOC "RDF">
@@ -161,7 +159,7 @@ There are a couple functions for parsing from a source file or string, and searc
     (xml-element-doc xml-element)           ;=> xml-doc
     (xml-element-parent xml-element)        ;=> xml-element
 
-#### `xml-tag` methods (subclass of `xml-node`)
+#### `xml-tag` methods (subclass of `xml-element`)
 
     (xml-tag-namespaces xml-tag)            ;=> xml-namespaces
     (xml-tag-elements xml-tag)              ;=> xml-tags
