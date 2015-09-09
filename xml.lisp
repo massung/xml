@@ -327,9 +327,9 @@
 
   ;; external references
   ("[%s%n]+SYSTEM[%s%n]+(?'(.-)'|\"(.-)\")"
-   (values :system (list $1)))
+   (values :external-ref (list $1)))
   ("[%s%n]+PUBLIC[%s%n]+(?'(.-)'|\"(.-)\")[%s%n]+(?'(.-)'|\"(.-)\")"
-   (values :public (list $2 $1)))
+   (values :external-ref (list $2 $1)))
 
   ;; literal values
   ("[%s%n]+(?'(.-)'|\"(.-)\")" (values :value $1))
@@ -352,7 +352,7 @@
   ("'.-'|\".-\"" :next-token)
 
   ;; skip everything else up to the end of the element declaration
-  (".[^'\"%[]*" :next-token))
+  (".[^>'\"%[]*" :next-token))
 
 ;;; ----------------------------------------------------
 
@@ -484,13 +484,14 @@
 
                                ;; optionally an unparsed NDATA type
                                (ndata (.opt nil (.is :ndata))))
-
-                         ;; if there's no NDATA, it is a parsed entity
                          (.ret (list name nil value ndata)))
 
                        ;; external reference?
-                       (.let (ref (.is :external-ref))
-                         (.ret (list name ref nil nil))))))
+                       (.let* ((ref (.is :external-ref))
+
+                               ;; optionall an unparsed NDATA type
+                               (ndata (.opt nil (.is :ndata))))
+                         (.ret (list name ref nil ndata))))))
 
     ;; end the entity
     (.do (.is :end-dtd-element)
@@ -683,9 +684,9 @@
 
 (defun build-dtd (doc root &optional ref elements)
   "Create the doctype from all the elements of the DTD."
+  (declare (ignore doc))
   (flet ((make-entity (name ref value ndata)
            (make-instance 'xml-entity
-                          :doc doc
                           :name name
                           :system-uri (first ref)
                           :public-id (second ref)
@@ -760,7 +761,6 @@
 (defun xml-load (pathname &rest slurp-args)
   "Read the contents of a file and then parse it as XML."
   (xml-parse (apply #'lex:slurp pathname slurp-args) pathname))
-
 ;;; ----------------------------------------------------
 
 (defun match-element-p (name elem)
