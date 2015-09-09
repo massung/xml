@@ -1,4 +1,4 @@
-;;;; Non-validating, Lightweight XML parser for Common Lisp
+;;;; Non-validating, Lightweight XML parser for ClozureCL
 ;;;;
 ;;;; Copyright (c) Jeffrey Massung
 ;;;;
@@ -18,7 +18,7 @@
 ;;;;
 
 (defpackage :xml
-  (:use :cl :parse :re :lexer :markup)
+  (:use :cl :ccl :parse :re :lexer :markup)
   (:export
    #:xml-parse
    #:xml-load
@@ -63,11 +63,6 @@
    #:xml-token-char-p))
 
 (in-package :xml)
-
-;;; ----------------------------------------------------
-
-(defvar *xml-doc* nil
-  "The current document being parsed.")
 
 ;;; ----------------------------------------------------
 
@@ -195,13 +190,18 @@
 
 (defun xml-external-format (encoding)
   "Return a keyword for the external format for an encoding string."
-  (cond ((string-equal encoding "utf-8") :utf-8)
+  (cond ((string-equal encoding "us-ascii") :us-ascii)
+
+        ;; utf formats
+        ((string-equal encoding "utf-8") :utf-8)
         ((string-equal encoding "utf-16") :utf-16)
         ((string-equal encoding "utf-32") :utf-32)
+
+        ;; macos and japanese extended unicode
         ((string-equal encoding "x-mac-roman") :macos-roman)
         ((string-equal encoding "euc-jp") :euc-jp)
 
-        ;; iso-8859-x external formats
+        ;; iso-8859-x encodings
         ((string-equal encoding "iso-8859-1") :iso-8859-1)
         ((string-equal encoding "iso-8859-2") :iso-8859-2)
         ((string-equal encoding "iso-8859-3") :iso-8859-3)
@@ -282,9 +282,9 @@
 
   ;; external references
   ("[%s%n]+SYSTEM[%s%n]+(?'(.-)'|\"(.-)\")"
-   (values :system (list $1)))
+   (values :external-ref (list $1)))
   ("[%s%n]+PUBLIC[%s%n]+(?'(.-)'|\"(.-)\")[%s%n]+(?'(.-)'|\"(.-)\")"
-   (values :public (list $2 $1)))
+   (values :external-ref (list $2 $1)))
 
   ;; internal document type declaration
   ("[%s%n]*%[" (push-lexer s 'xml-dtd-lexer :dtd))
@@ -445,8 +445,7 @@
   (.let* ((root (.is :doctype))
 
           ;; document can have an optional external reference
-          (external-ref (.opt nil (.or (.is :system)
-                                       (.is :public))))
+          (external-ref (.opt nil (.is :external-ref)))
 
           ;; optionally parse any internal subset DTD
           (dtd (.opt nil 'xml-dtd-parser)))
@@ -711,7 +710,7 @@
                             :source source
                             :version "1.0"
                             :encoding :utf-8
-                            :standalone nil
+                            :standalone t
                             :doctype nil
                             :root nil)))
     (prog1 doc
@@ -758,9 +757,43 @@
 
 ;;; ----------------------------------------------------
 
-(defun xml-load (pathname &rest slurp-args)
+(defun xml-load (pathname)
   "Read the contents of a file and then parse it as XML."
-  (xml-parse (apply #'lex:slurp pathname slurp-args) pathname))
+  (let ((bytes (slurp pathname :element-type '(unsigned-byte 8))))
+    (xml-parse (xml-decode bytes) pathname)))
+
+;;; ----------------------------------------------------
+
+(defun xml-decode (bytes)
+  "Determine the encoding type of a vector and decode it."
+  (when (>= (length bytes) 4)
+    (let* ((mark (logior (dpb (elt bytes 0) (byte 8 24) 0)
+                         (dpb (elt bytes 1) (byte 8 16) 0)
+                         (dpb (elt bytes 2) (byte 8  8) 0)
+                         (dpb (elt bytes 3) (byte 8  0) 0)))
+
+           ;; check for a byte order mark first
+           (format (cond ((= #x0000FEFF mark) :utf-32)
+                         ((= #xFFFE0000 mark) :utf-32)
+
+                         ;; utf-16 big and little endian
+                         ((= #xFEFF (ldb (byte 16 16) mark)) :utf-16)
+                         ((= #xFFFE (ldb (byte 16 16) mark)) :utf-16)
+
+                         ;; utf-8 with byte mark
+                         ((= #xFEBBBF (ldb (byte 24 8) mark)) :utf-8)
+
+                         ;; without a byte order mark
+                         ((= #x0000003C mark) :utf-32)
+                         ((= #x3C000000 mark) :utf-32)
+                         ((= #x003C003F mark) :utf-16)
+                         ((= #x3C003F00 mark) :utf-16)
+                         ((= #x3C3F786D mark) :utf-8)
+
+                        ;; anything else, just assume utf-8
+                        (t :utf-8))))
+      (decode-string-from-octets bytes :external-format format))))
+
 ;;; ----------------------------------------------------
 
 (defun match-element-p (name elem)
