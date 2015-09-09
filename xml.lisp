@@ -49,13 +49,13 @@
    ;; generic element accessors
    #:xml-element-ns
    #:xml-element-doc
+   #:xml-element-parent
 
    ;; entity accessors
    #:xml-entity-ndata
 
    ;; parsed tag accessors
    #:xml-tag-elements
-   #:xml-tag-parent
    #:xml-tag-attributes
 
    ;; utility functions
@@ -111,7 +111,8 @@
 
 (defclass xml-element (xml-node)
   ((ns         :initarg :namespace  :accessor xml-element-ns)
-   (doc        :initarg :document   :accessor xml-element-doc))
+   (doc        :initarg :document   :accessor xml-element-doc)
+   (parent     :initarg :parent     :accessor xml-element-parent))
   (:documentation "A generic element."))
 
 ;;; ----------------------------------------------------
@@ -125,7 +126,6 @@
 (defclass xml-tag (xml-element)
   ((nss        :initarg :namespaces :accessor xml-tag-namespaces)
    (elts       :initarg :elements   :accessor xml-tag-elements)
-   (parent     :initarg :parent     :accessor xml-tag-parent)
    (atts       :initarg :attributes :accessor xml-tag-attributes))
   (:documentation "An XML tag with attributes and inner-text value."))
 
@@ -365,6 +365,12 @@
   ;; skip whitespace
   ("[%s%n]+" :next-token)
 
+  ;; namespaces
+  ("xmlns:(%:xml-name-char-p:%:xml-token-char-p:*)"
+   (values :namespace $1))
+  ("xmlns[%s%n]*=[%s%n]*(?'(.-)'|\"(.-)\")"
+   (values :default-namespace $1))
+
   ;; attribute and value
   ("(%:xml-name-char-p:%:xml-token-char-p:*)"
    (values :attr $1))
@@ -521,9 +527,18 @@
 
 (define-parser xml-attribute-parser
   "Parse all the attributes in a tag."
-  (.many (.let* ((att (.is :attr))
-                 (value (.is :value)))
-           (.ret (list att value)))))
+  (.many (.or (.let (default-ns (.is :default-namespace))
+                (.ret (list :namespace t default-ns)))
+
+              ;; named namespace
+              (.let* ((ns (.is :namespace))
+                      (value (.is :value)))
+                (.ret (list :namespace ns value)))
+
+              ;; attributes
+              (.let* ((att (.is :attr))
+                      (value (.is :value)))
+                (.ret (list :attribute att value))))))
 
 ;;; ----------------------------------------------------
 
@@ -549,12 +564,59 @@
 
 ;;; ----------------------------------------------------
 
-(defun build-attribute (doc k v)
+(defun find-namespace (name tag)
+  "Lookup a namespace in an tag tree given the name."
+  (loop
+     with default-ns = nil
+
+     ;; stop at the root
+     while tag
+
+     ;; lookup the namespace in this tag
+     for nss =  (xml-tag-namespaces tag)
+     for ns = (find name nss :test 'equal :key 'xml-node-name)
+
+     ;; if the namespace was found, return it
+     when ns return ns
+
+     ;; if there's no default namespace yet, find one
+     unless default-ns do (setf default-ns (find t nss :key 'xml-node-name))
+
+     ;; otherwise, go up the tree, stop at root
+     do (unless (setf tag (xml-element-parent tag))
+          (loop-finish))
+
+     ;; if none found, find the first default namespace and use that
+     finally (return default-ns)))
+
+;;; ----------------------------------------------------
+
+(defun name-namespace (name tag)
+  "Split a name into namespace and name."
+  (let ((i (position #\: name)))
+    (if i
+        (let ((ns (find-namespace (subseq name 0 i) tag)))
+          (values ns (if ns (subseq name (1+ i)) name)))
+      (values (find-namespace t tag) name))))
+
+;;; ----------------------------------------------------
+
+(defun build-namespace (name value)
+  "Construct an xml-namespace."
+  (make-instance 'xml-namespace :name name :value value))
+
+;;; ----------------------------------------------------
+
+(defun build-attribute (doc parent k v)
   "Construct an xml-attribute, decoding the value."
-  (make-instance 'xml-attribute
-                 :document doc
-                 :name k
-                 :value (expand-entity-refs doc v)))
+  (multiple-value-bind (ns name)
+      (name-namespace k (xml-element-parent parent))
+    (make-instance 'xml-attribute
+                   :document doc
+                   :namespace ns
+                   :parent parent
+                   :name name
+                   :value (expand-entity-refs doc v))))
 
 ;;; ----------------------------------------------------
 
@@ -562,22 +624,34 @@
   "Construct an xml-tag from a parsed form."
   (let ((tag (make-instance 'xml-tag
                             :document doc
+                            :namespace nil
+                            :parent parent
                             :name name
                             :value nil
-                            :attributes nil
-                            :elements nil
-                            :namespaces nil
-                            :parent parent)))
+                            :elements nil)))
     (prog1 tag
 
-      ;; construct the attributes
-      (setf (xml-tag-attributes tag)
-            (loop for (k v) in atts collect (build-attribute doc k v)))
+      ;; collect all the namespaces first
+      (setf (xml-tag-namespaces tag)
+            (loop
+               for (ns k v) in atts
+               when (eq ns :namespace)
+               collect (build-namespace k v))
+
+            ;; then the attributes (which may use the namespaces)
+            (xml-tag-attributes tag)
+            (loop
+               for (att k v) in atts
+               when (eq att :attribute)
+               collect (build-attribute doc tag k v)))
+
+      ;; now determine the namespace and the name of the element
+      (multiple-value-bind (ns tag-name)
+          (name-namespace name tag)
+        (setf (xml-node-name tag) tag-name (xml-element-ns tag) ns))
 
       ;; construct the inner-xml
       (loop
-
-         ;; all inner text will be written to a stream
          with inner-text = (make-string-output-stream)
 
          ;; process inner-xml
@@ -598,7 +672,7 @@
          do (let ((text (expand-entity-refs doc (second e))))
               (write-string text inner-text))
 
-         ;; set the child elemnets
+         ;; set the child elements
          finally (setf (xml-tag-elements tag) child-tags
 
                        ;; write the output to the tag's value
@@ -689,9 +763,33 @@
 
 ;;; ----------------------------------------------------
 
+(defun match-element-p (name elem)
+  "T if the name matches the element (name may contain a namespace)."
+  (let ((i (position #\: name)))
+    (if (null i)
+        (string= name (xml-node-name elem))
+      (let ((ns (xml-element-ns elem)))
+        (and (not (eq (xml-node-name ns) t))
+
+             ;; the namespace and the name must both match
+             (string= name (xml-node-name ns) :end1 i)
+
+             ;; if the name is empty or "*" match everything
+             (or (string= name "" :start1 (1+ i))
+                 (string= name "*" :start1 (1+ i))
+
+                 ;; otherwise match the name of the element
+                 (string= name (xml-node-name elem) :start1 (1+ i))))))))
+
+;;; ----------------------------------------------------
+
 (defmethod xml-query ((tag xml-tag) path)
   "Recursively descend into a tag finding child tags with a given path."
-  (let* ((path-elts (split-re #r"/" path :all t))
+  (let* ((att-pos (position #\@ path))
+         (end-pos (or att-pos (length path)))
+
+         ;; split the path by separator up to the attribute delimiter
+         (path-elts (split-re #r"/" path :end end-pos :all t))
 
          ;; determine which tags to search (breadth-first)
          (tags (cond ((null path-elts))
@@ -704,20 +802,37 @@
                      ;; search all the child elements of this tag
                      (t (xml-tag-elements tag)))))
 
-    ;; search each path element
-    (do ((path (pop path-elts)
-               (pop path-elts)))
-        ((null path) tags)
+      ;; search each path element
+      (do ((path (pop path-elts)
+                 (pop path-elts)))
+          ((null path))
 
-      ;; find all the tags that match this path element
-      (setf tags (if (or (string= path "")
-                         (string= path "*"))
-                     tags
-                   (remove path tags :test 'string/= :key 'xml-node-name)))
+        ;; find all the tags that match this path element
+        (setf tags (if (or (string= path "")
+                           (string= path "*"))
+                       tags
+                     (flet ((match (tag)
+                              (match-element-p path tag)))
+                       (remove-if-not #'match tags))))
 
-      ;; if there are more path elements to search, get child tags
-      (when path-elts
-        (setf tags (loop for tag in tags append (xml-tag-elements tag)))))))
+        ;; if there are more path elements to search, get child tags
+        (when path-elts
+          (setf tags (loop
+                        for tag in tags
+                        append (xml-tag-elements tag)))))
+
+      ;; return the tags if not searching for an attribute
+      (if (null att-pos)
+          tags
+        (loop
+           with att-name = (subseq path (1+ att-pos))
+
+           ;; loop over each tag, search for the attribute
+           for tag in tags
+           for att = (xml-query-attribute tag att-name)
+
+           ;; when found, return it
+           when att collect att))))
 
 ;;; ----------------------------------------------------
 
@@ -730,7 +845,7 @@
 (defmethod xml-query-attribute ((tag xml-tag) name)
   "Return an attribute with the given name from a tag if found."
   (let ((atts (xml-tag-attributes tag)))
-    (find name atts :test #'string= :key #'xml-node-name)))
+    (find-if #'(lambda (att) (match-element-p name att)) atts)))
 
 ;;; ----------------------------------------------------
 
