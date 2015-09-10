@@ -4,7 +4,7 @@
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (use-package :xml))
 
-(defparameter *test-path* #p"/ccl-projects/xml/test/xmltest/"
+(defparameter *test-path* #p"~/ccl-projects/xml/test/xmltest/"
   "Location on disk where the test suite resides.")
 
 (defun run-test-suite ()
