@@ -18,14 +18,13 @@
 ;;;;
 
 (defpackage :xml
-  (:use :cl :ccl :parse :re :lexer :markup)
+  (:use :cl :ccl :parse :re :rfc-date :lexer :markup)
   (:export
    #:xml-parse
    #:xml-load
 
    ;; document searching
    #:xml-query
-   #:xml-query-attribute
 
    ;; document accessors
    #:xml-doc-source
@@ -796,92 +795,21 @@
 
 ;;; ----------------------------------------------------
 
-(defun match-element-p (name elem)
-  "T if the name matches the element (name may contain a namespace)."
-  (let ((i (position #\: name)))
-    (if (null i)
-        (string= name (xml-node-name elem))
-      (let ((ns (xml-element-ns elem)))
-        (and (not (eq (xml-node-name ns) t))
-
-             ;; the namespace and the name must both match
-             (string= name (xml-node-name ns) :end1 i)
-
-             ;; if the name is empty or "*" match everything
-             (or (string= name "" :start1 (1+ i))
-                 (string= name "*" :start1 (1+ i))
-
-                 ;; otherwise match the name of the element
-                 (string= name (xml-node-name elem) :start1 (1+ i))))))))
+(defmethod xml-node-read ((node xml-node))
+  "Read the value of an XML node and coerce it to a given type."
+  (read-from-string (xml-node-value node)))
 
 ;;; ----------------------------------------------------
-
+#|
 (defmethod xml-query ((tag xml-tag) path)
   "Recursively descend into a tag finding child tags with a given path."
-  (let* ((att-pos (position #\@ path))
-         (end-pos (or att-pos (length path)))
-
-         ;; split the path by separator up to the attribute delimiter
-         (path-elts (split-re #r"/" path :end end-pos :all t))
-
-         ;; determine which tags to search (breadth-first)
-         (tags (cond ((null path-elts))
-
-                     ;; the first path is empty, start at the root
-                     ((string= (first path-elts) "")
-                      (prog1 (list (xml-doc-root (xml-element-doc tag)))
-                        (pop path-elts)))
-
-                     ;; search all the child elements of this tag
-                     (t (xml-tag-elements tag)))))
-
-      ;; search each path element
-      (do ((path (pop path-elts)
-                 (pop path-elts)))
-          ((null path))
-
-        ;; find all the tags that match this path element
-        (setf tags (if (or (string= path "")
-                           (string= path "*"))
-                       tags
-                     (flet ((match (tag)
-                              (match-element-p path tag)))
-                       (remove-if-not #'match tags))))
-
-        ;; if there are more path elements to search, get child tags
-        (when path-elts
-          (setf tags (loop
-                        for tag in tags
-                        append (xml-tag-elements tag)))))
-
-      ;; return the tags if not searching for an attribute
-      (if (null att-pos)
-          tags
-        (loop
-           with att-name = (subseq path (1+ att-pos))
-
-           ;; loop over each tag, search for the attribute
-           for tag in tags
-           for att = (xml-query-attribute tag att-name)
-
-           ;; when found, return it
-           when att collect att))))
+  (let ((query (xml-query-parse path)))
+    (when query
+      (xml-query-run tag query))))
 
 ;;; ----------------------------------------------------
 
 (defmethod xml-query ((doc xml-doc) path)
   "Recursively descend into the document to find a given path."
   (xml-query (xml-doc-root doc) path))
-
-;;; ----------------------------------------------------
-
-(defmethod xml-query-attribute ((tag xml-tag) name)
-  "Return an attribute with the given name from a tag if found."
-  (let ((atts (xml-tag-attributes tag)))
-    (find-if #'(lambda (att) (match-element-p name att)) atts)))
-
-;;; ----------------------------------------------------
-
-(defmethod xml-query-attribute ((doc xml-doc) name)
-  "Return an attribute with the given name from a tag if found."
-  (xml-query-attribute (xml-doc-root doc) name))
+|#
