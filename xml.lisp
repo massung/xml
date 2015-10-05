@@ -20,11 +20,22 @@
 (defpackage :xml
   (:use :cl :ccl :parse :re :rfc-date :lexer :markup)
   (:export
+
+   ;; special variables
+   #:*xml-date/time-format*
+
+   ;; query variables
+   #:%node
+   #:%current
+   #:%text
+
+   ;; parsing and loading
    #:xml-parse
    #:xml-load
 
-   ;; document searching
+   ;; queries
    #:xml-query
+   #:xml-query-compile
 
    ;; document accessors
    #:xml-doc-source
@@ -798,18 +809,3 @@
 (defmethod xml-node-read ((node xml-node))
   "Read the value of an XML node and coerce it to a given type."
   (read-from-string (xml-node-value node)))
-
-;;; ----------------------------------------------------
-#|
-(defmethod xml-query ((tag xml-tag) path)
-  "Recursively descend into a tag finding child tags with a given path."
-  (let ((query (xml-query-parse path)))
-    (when query
-      (xml-query-run tag query))))
-
-;;; ----------------------------------------------------
-
-(defmethod xml-query ((doc xml-doc) path)
-  "Recursively descend into the document to find a given path."
-  (xml-query (xml-doc-root doc) path))
-|#
