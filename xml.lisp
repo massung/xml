@@ -21,21 +21,20 @@
   (:use :cl :ccl :parse :re :rfc-date :lexer :markup)
   (:export
 
-   ;; special variables
-   #:*xml-date/time-format*
-
-   ;; query variables
-   #:%node
-   #:%current
-   #:%text
-
    ;; parsing and loading
    #:xml-parse
    #:xml-load
 
    ;; queries
-   #:xml-query
    #:xml-query-compile
+   #:xml-query
+
+   ;; query variables
+   #:%node
+   #:%position
+   #:%parent
+   #:%ns
+   #:%text
 
    ;; document accessors
    #:xml-doc-source

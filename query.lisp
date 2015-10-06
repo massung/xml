@@ -21,13 +21,11 @@
 
 ;;; ----------------------------------------------------
 
-(defvar *xml-date/time-format* :iso8601)
-
-;;; ----------------------------------------------------
-
-(defvar %node)
-(defvar %current)
-(defvar %text)
+(defvar %node nil)
+(defvar %position nil)
+(defvar %parent nil)
+(defvar %ns nil)
+(defvar %text nil)
 
 ;;; ----------------------------------------------------
 
@@ -54,7 +52,7 @@
   ("%.%." (values :parent))
   ("%."   (values :self))
 
-  ;; an integer index
+  ;; position index
   ("%d+"  (values :index (parse-integer $$)))
 
   ;; tag selector
@@ -64,6 +62,10 @@
   ;; attribute selector
   ("@%:xml-name-char-p:%:xml-token-char-p:*"
    (values :att (subseq $$ 1)))
+
+  ;; read an xml symbol
+  ("%%[^/]+" (let ((symbol (intern (string-upcase $$) :xml)))
+               (values :apply `(symbol-value ',symbol))))
 
   ;; read a symbol to use as a map function
   ("#?'([^/]+)" (values :apply (read-from-string $1)))
@@ -88,13 +90,9 @@
 
 (define-parser xml-path-parser
   "Single path elements."
-  (.let (path (.or (>> (.is :parent) (.ret '(:parent)))
-                   (>> (.is :self) (.ret '(:self)))
-                   (>> (.is :any) (.ret '(:any)))
-
-                   ;; index
-                   (.let (n (.is :index))
-                     (.ret (list :index n)))
+  (.let (path (.or (>> (.is :parent) (.ret '(:parent nil)))
+                   (>> (.is :self) (.ret '(:self nil)))
+                   (>> (.is :any) (.ret '(:any nil)))
 
                    ;; an empty path is a descendant
                    (.do (.is :path)
@@ -102,6 +100,10 @@
                                (.ret `(:descendant (:tag ,tok))))
                              (.let (att (.is :att))
                                (.ret `(:descendant (:attribute ,att))))))
+
+                   ;; position index
+                   (.let (i (.is :index))
+                     (.ret (list :index i)))
 
                    ;; a child tag
                    (.let (tok (.is :token))
@@ -113,16 +115,16 @@
 
                    ;; a transform
                    (.let (form (.is :apply))
-                     (.ret (list :apply (if (symbolp form)
-                                            form
-                                          (xml-query-select (list form))))))
+                     (.ret (list :apply (xml-query-eval form))))
 
                    ;; syntax error in parser
                    (.fail "Illegal XML query")))
 
     ;; check for an index or a predicate filter
     (.either (.let (select 'xml-query-select-parser)
-               (let ((q (make-instance 'xml-query :instructions select)))
+               (let ((q (make-instance 'xml-query
+                                       :pattern nil
+                                       :instructions select)))
                  (.ret (append path (list q)))))
 
              ;; just a path select
@@ -144,6 +146,24 @@
           (parse 'xml-query-parser next-token)
         (when okp
           (make-instance 'xml-query :pattern qs :instructions inst))))))
+
+;;; ----------------------------------------------------
+
+(defmacro with-query-node (&body body)
+  "Bind additional XML query variables and execute a body."
+  `(multiple-value-bind (%text %ns %parent)
+       (when (typep %node 'xml-element)
+         (values (xml-node-value %node)
+                 (xml-element-ns %node)
+                 (xml-element-parent %node)))
+     (progn ,@body)))
+
+;;; ----------------------------------------------------
+
+(defun xml-query-eval (form)
+  "Compile a function that will execute form on a node."
+  (compile () `(lambda ()
+                 ,(if (symbolp form) `(funcall ',form %node) form))))
 
 ;;; ----------------------------------------------------
 
@@ -169,63 +189,79 @@
                             :namespaces nil
                             :attributes nil
                             :elements (list (xml-doc-root doc)))))
-    (xml-query top query)))
+    (xml-query-run (list top) query)))
 
 ;;; ----------------------------------------------------
 
-(defmethod xml-query ((node xml-tag) (query xml-query))
+(defmethod xml-query ((node xml-element) (query xml-query))
   "Execute a query on a node to return a subset of values."
-  (loop
-     with xs = (list node)
-
-     ;; loop over each step in the query
-     for (walk x select) in (xml-query-instructions query)
-
-     ;; loop over the current results, apply the select
-     do (setf xs (ecase walk
-
-                   ;; use this node
-                   (:self xs)
-
-                   ;; jump to the root node of the document
-                   (:root (list (xml-doc-root (xml-element-doc node))))
-
-                   ;; get the parent node
-                   (:parent (mapcar #'xml-element-parent xs))
-
-                   ;; find matching child tags
-                   (:tag (xml-query-find x xs 'elts))
-
-                   ;; find matching attributes; (:attribute t) matches all
-                   (:attribute (xml-query-find x xs 'atts))
-
-                   ;; traverse to all descendants
-                   (:descendant (xml-query-find-descendants x xs))
-
-                   ;; apply a function to the node, use result
-                   (:apply (mapcar x xs))
-
-                   ;; pick an index
-                   (:index (let ((n (nth (1- x) xs)))
-                             (when n
-                               (list n))))))
-
-     ;; optionally select from the results so far
-     when select do (setf xs (flet ((test (x)
-                                      (xml-query x select)))
-                               (remove-if-not #'test xs)))
-
-     ;; done, return the results
-     finally (return xs)))
+  (xml-query-run (list node) query))
 
 ;;; ----------------------------------------------------
 
-(defun xml-query-select (forms)
-  "Select a from a list of nodes based on index or test."
-  (compile () `(lambda (%self)
-                 (when (typep %self 'xml-node)
-                   (setf %node %self %text (xml-node-value %self)))
-                 (progn ,@forms))))
+(defun xml-query-run (nodes query)
+  ""
+  (loop
+     for (step x select) in (xml-query-instructions query)
+
+     ;; update the list of nodes with the next results
+     do (flet ((step-query (%node)
+                 (xml-query-step step x)))
+          (let ((ns (mapcan #'step-query nodes)))
+            (setf nodes (if (null select)
+                            ns
+                          (xml-query-select ns select)))))
+
+     ;; if there's a select in the step then filter
+     finally (return nodes)))
+
+;;; ----------------------------------------------------
+
+(defun xml-query-select (nodes query)
+  ""
+  (loop
+     for %position from 1
+     for %node in nodes
+
+     ;; test the node, if there are results, keep it
+     when (xml-query-run (list %node) query) collect %node))
+
+;;; ----------------------------------------------------
+
+(defun xml-query-step (step &optional x)
+  "Execute a single instruction in a query on the current node."
+  (ecase step
+
+    ;; just keep the node
+    (:self (list %node))
+
+    ;; jump tot he root document node
+    (:root (list (xml-doc-root (xml-element-doc %node))))
+
+    ;; get the parent node
+    (:parent (list (xml-element-parent %node)))
+
+    ;; all child tags
+    (:any (xml-tag-elements %node))
+
+    ;; all matching child tags
+    (:tag (xml-query-find x (xml-tag-elements %node)))
+
+    ;; all matching attributes
+    (:attribute (xml-query-find x (xml-tag-attributes %node)))
+
+    ;; all matching descendants
+    (:descendant (xml-query-find-descendants x %node))
+
+    ;; map the node, keep non-nil results
+    (:apply (with-query-node
+              (let ((y (funcall x)))
+                (when y
+                  (list y)))))
+
+    ;; match by index
+    (:index (when (eql x %position)
+              (list %node)))))
 
 ;;; ----------------------------------------------------
 
@@ -241,14 +277,13 @@
 
 ;;; ----------------------------------------------------
 
-(defun xml-query-find (name nodes slot)
+(defun xml-query-find (name nodes)
   "Search a list of nodes for a matching child tags."
-  (let ((pred (xml-query-name name)))
-    (loop for n in nodes append (remove-if-not pred (slot-value n slot)))))
+  (remove-if-not (xml-query-name name) nodes))
 
 ;;; ----------------------------------------------------
 
-(defun xml-query-find-descendants (match nodes)
+(defun xml-query-find-descendants (match node)
   "Search rescursively through nodes to find descendant tags."
   (destructuring-bind (type name)
       match
@@ -273,4 +308,4 @@
 
                     ;; combine them together
                     finally (return (append xs ys)))))
-        (mapcan #'find-descendants nodes)))))
+        (find-descendants node)))))
