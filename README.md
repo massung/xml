@@ -53,6 +53,8 @@ It should be easy enough (using the inspector) to see how the document and tags,
 
 A query is extremely similar to the short-hand of an [XPath](https://en.wikipedia.org/wiki/XPath), except it also allows for arbitrary Lisp code to be executed. So, while it doesn't support the full RFC for XML queries, you should still be able to do a whole lot with it very easily.
 
+Query strings can also be compiled and re-used with `xml-query-compile` instead of being re-compiled every use.
+
 For example, let's load the RSS file in the test folder:
 
     CL-USER > (setf rss (xml-load #p"test/rss.xml"))
@@ -132,13 +134,19 @@ Or, finally, how about all resource tags that are children of a "Seq" tag?
 As you can see, there's an aweful lot that's possible with the query language. Just to recap the basics:
 
 **//** Find descendants.
-**/tag** Find immediate child tags.
-**/\*** Find all child tags.
+
+**/[*|tag]** Find immediate child tags.
+
 **/@attribute** Find all child attributes.
+
 **/(..)** Map results through Lisp form.
+
 **/'symbol** Map results through Lisp symbol-function.
+
 **[..]** Filter results with a sub-query.
-**[n]** Filter by position.
+
+**[n]** Filter by position (1-based).
+
 **[(..)]** Filter by Lisp form.
 
 ## Querying with Namespaces
@@ -176,7 +184,8 @@ There are a couple functions for parsing from a source file or string, and searc
 
 #### Traverse/Query Methods
 
-    (xml-query [tag|doc] path)              ;=> list
+    (xml-query [tag|doc] [query|string])    ;=> list
+    (xml-query-compile string)              ;=> xml-query
 
 #### `xml-doc` methods
 
