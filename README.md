@@ -133,21 +133,21 @@ Or, finally, how about all resource tags that are children of a "Seq" tag?
 
 As you can see, there's an aweful lot that's possible with the query language. Just to recap the basics:
 
-**//** Find descendants.
+**//** - Find descendants.
 
-**/[*|tag]** Find immediate child tags.
+**/<*|tag>** - Find immediate child tags.
 
-**/@attribute** Find all child attributes.
+**/@attribute** - Find all child attributes.
 
-**/(..)** Map results through Lisp form.
+**/(..)** - Map results through Lisp form.
 
-**/'symbol** Map results through Lisp symbol-function.
+**/'symbol** - Map results through Lisp symbol-function.
 
-**[..]** Filter results with a sub-query.
+**[..]** - Filter results with a sub-query.
 
-**[n]** Filter by position (1-based).
+**[n]** - Filter by position (1-based).
 
-**[(..)]** Filter by Lisp form.
+**[(..)]** - Filter by Lisp form.
 
 ## Querying with Namespaces
 
