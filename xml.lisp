@@ -21,9 +21,10 @@
   (:use :cl :ccl :parse :re :rfc-date :lexer :markup)
   (:export
 
-   ;; parsing and loading
+   ;; parsing, loading, and reading
    #:xml-parse
    #:xml-load
+   #:xml-read
 
    ;; queries
    #:xml-query-compile
@@ -33,7 +34,7 @@
    #:%node
    #:%position
    #:%parent
-   #:%ns
+   #:%name
    #:%text
 
    ;; document accessors
@@ -51,14 +52,12 @@
    #:xml-doctype-root
    #:xml-doctype-entities
 
-   ;; parsed node accessors
+   ;; generic node accessors
+   #:xml-node-namespace
+   #:xml-node-doc
+   #:xml-node-parent
    #:xml-node-name
    #:xml-node-value
-
-   ;; generic element accessors
-   #:xml-element-ns
-   #:xml-element-doc
-   #:xml-element-parent
 
    ;; entity accessors
    #:xml-entity-ndata
@@ -87,15 +86,12 @@
 ;;; ----------------------------------------------------
 
 (defclass xml-node ()
-  ((name       :initarg :name       :accessor xml-node-name)
-   (value      :initarg :value      :accessor xml-node-value))
-  (:documentation "A generic element."))
-
-;;; ----------------------------------------------------
-
-(defclass xml-namespace (xml-node)
-  ()
-  (:documentation "Unique xml-node identifier."))
+  ((namespace  :initarg :namespace  :accessor xml-node-namespace)
+   (doc        :initarg :document   :accessor xml-node-doc)
+   (name       :initarg :name       :accessor xml-node-name)
+   (value      :initarg :value      :accessor xml-node-value)
+   (parent     :initarg :parent     :accessor xml-node-parent))
+  (:documentation "A generic node name/value pair."))
 
 ;;; ----------------------------------------------------
 
@@ -113,31 +109,17 @@
 
 ;;; ----------------------------------------------------
 
-(defclass xml-element (xml-node)
-  ((ns         :initarg :namespace  :accessor xml-element-ns)
-   (doc        :initarg :document   :accessor xml-element-doc)
-   (parent     :initarg :parent     :accessor xml-element-parent))
-  (:documentation "A generic element."))
-
-;;; ----------------------------------------------------
-
 (defclass xml-entity (xml-ref xml-node)
   ((ndata      :initarg :ndata      :accessor xml-entity-ndata))
   (:documentation "A parsed or unparsed entity."))
 
 ;;; ----------------------------------------------------
 
-(defclass xml-tag (xml-element)
-  ((nss        :initarg :namespaces :accessor xml-tag-namespaces)
-   (elts       :initarg :elements   :accessor xml-tag-elements)
-   (atts       :initarg :attributes :accessor xml-tag-attributes))
-  (:documentation "An XML tag with attributes and inner-text value."))
-
-;;; ----------------------------------------------------
-
-(defclass xml-attribute (xml-element)
-  ()
-  (:documentation "An attribute key/value pair."))
+(defclass xml-tag (xml-node)
+  ((namespaces :initarg :namespaces :accessor xml-tag-namespaces)
+   (elements   :initarg :elements   :accessor xml-tag-elements)
+   (attributes :initarg :attributes :accessor xml-tag-attributes))
+  (:documentation "A generic element."))
 
 ;;; ----------------------------------------------------
 
@@ -592,7 +574,7 @@
      unless default-ns do (setf default-ns (find t nss :key 'xml-node-name))
 
      ;; otherwise, go up the tree, stop at root
-     do (unless (setf tag (xml-element-parent tag))
+     do (unless (setf tag (xml-node-parent tag))
           (loop-finish))
 
      ;; if none found, find the first default namespace and use that
@@ -610,17 +592,22 @@
 
 ;;; ----------------------------------------------------
 
-(defun build-namespace (name value)
+(defun build-namespace (doc parent name value)
   "Construct an xml-namespace."
-  (make-instance 'xml-namespace :name name :value value))
+  (make-instance 'xml-node
+                 :document doc
+                 :parent parent
+                 :namespace nil
+                 :name name
+                 :value value))
 
 ;;; ----------------------------------------------------
 
 (defun build-attribute (doc parent k v)
   "Construct an xml-attribute, decoding the value."
   (multiple-value-bind (ns name)
-      (name-namespace k (xml-element-parent parent))
-    (make-instance 'xml-attribute
+      (name-namespace k (xml-node-parent parent))
+    (make-instance 'xml-node
                    :document doc
                    :namespace ns
                    :parent parent
@@ -640,24 +627,24 @@
                             :elements nil)))
     (prog1 tag
 
-      ;; collect all the namespaces first
+      ;; collect all the namespaces first...
       (setf (xml-tag-namespaces tag)
             (loop
-               for (ns k v) in atts
-               when (eq ns :namespace)
-               collect (build-namespace k v))
+               for (type k v) in atts
+               when (eq type :namespace)
+               collect (build-namespace doc tag k v))
 
-            ;; then the attributes (which may use the namespaces)
+            ;; ...then the attributes, which use the namespaces
             (xml-tag-attributes tag)
             (loop
-               for (att k v) in atts
-               when (eq att :attribute)
+               for (type k v) in atts
+               when (eq type :attribute)
                collect (build-attribute doc tag k v)))
 
-      ;; now determine the namespace and the name of the element
+      ;; now determine the namespace and the name of the tag
       (multiple-value-bind (ns tag-name)
           (name-namespace name tag)
-        (setf (xml-node-name tag) tag-name (xml-element-ns tag) ns))
+        (setf (xml-node-name tag) tag-name (xml-node-namespace tag) ns))
 
       ;; construct the inner-xml
       (loop
@@ -692,9 +679,10 @@
 
 (defun build-dtd (doc root &optional ref elements)
   "Create the doctype from all the elements of the DTD."
-  (declare (ignore doc))
   (flet ((make-entity (name ref value ndata)
            (make-instance 'xml-entity
+                          :document doc
+                          :parent nil
                           :name name
                           :system-uri (first ref)
                           :public-id (second ref)
@@ -773,6 +761,12 @@
 
 ;;; ----------------------------------------------------
 
+(defun xml-read (node)
+  "Read the value of an XML node and coerce it to a given type."
+  (read-from-string (xml-node-value node)))
+
+;;; ----------------------------------------------------
+
 (defun xml-decode (bytes)
   "Determine the encoding type of a vector and decode it."
   (when (>= (length bytes) 4)
@@ -802,9 +796,3 @@
                         ;; anything else, just assume utf-8
                         (t :utf-8))))
       (decode-string-from-octets bytes :external-format format))))
-
-;;; ----------------------------------------------------
-
-(defmethod xml-node-read ((node xml-node))
-  "Read the value of an XML node and coerce it to a given type."
-  (read-from-string (xml-node-value node)))

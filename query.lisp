@@ -24,7 +24,7 @@
 (defvar %node nil)
 (defvar %position nil)
 (defvar %parent nil)
-(defvar %ns nil)
+(defvar %name nil)
 (defvar %text nil)
 
 ;;; ----------------------------------------------------
@@ -151,11 +151,11 @@
 
 (defmacro with-query-node (&body body)
   "Bind additional XML query variables and execute a body."
-  `(multiple-value-bind (%text %ns %parent)
-       (when (typep %node 'xml-element)
-         (values (xml-node-value %node)
-                 (xml-element-ns %node)
-                 (xml-element-parent %node)))
+  `(multiple-value-bind (%parent %name %text)
+       (when (typep %node 'xml-node)
+         (values (xml-node-parent %node)
+                 (xml-node-name %node)
+                 (xml-node-value %node)))
      (progn ,@body)))
 
 ;;; ----------------------------------------------------
@@ -164,6 +164,20 @@
   "Compile a function that will execute form on a node."
   (compile () `(lambda ()
                  ,(if (symbolp form) `(funcall ',form %node) form))))
+
+;;; ----------------------------------------------------
+
+(defun xml-query-root (doc)
+  "Return a root node for a query."
+  (make-instance 'xml-tag
+                 :document doc
+                 :namespace nil
+                 :name nil
+                 :value nil
+                 :parent nil
+                 :namespaces nil
+                 :attributes nil
+                 :elements (list (xml-doc-root doc))))
 
 ;;; ----------------------------------------------------
 
@@ -181,15 +195,7 @@
 
 (defmethod xml-query ((doc xml-doc) (query xml-query))
   "Execute a query on a document to return a subset of values."
-  (let ((top (make-instance 'xml-tag
-                            :document doc
-                            :name nil
-                            :value nil
-                            :parent nil
-                            :namespaces nil
-                            :attributes nil
-                            :elements (list (xml-doc-root doc)))))
-    (xml-query-run (list top) query)))
+  (xml-query-run (list (xml-query-root doc)) query))
 
 ;;; ----------------------------------------------------
 
@@ -200,7 +206,7 @@
 ;;; ----------------------------------------------------
 
 (defun xml-query-run (nodes query)
-  ""
+  "Run all the steps in a query on a set of nodes."
   (loop
      for (step x select) in (xml-query-instructions query)
 
@@ -218,7 +224,7 @@
 ;;; ----------------------------------------------------
 
 (defun xml-query-select (nodes query)
-  ""
+  "Filter a set of nodes using a select query."
   (loop
      for %position from 1
      for %node in nodes
@@ -236,10 +242,10 @@
     (:self (list %node))
 
     ;; jump tot he root document node
-    (:root (list (xml-doc-root (xml-element-doc %node))))
+    (:root (list (xml-query-root (xml-node-doc %node))))
 
     ;; get the parent node
-    (:parent (list (xml-element-parent %node)))
+    (:parent (list (xml-node-parent %node)))
 
     ;; all child tags
     (:any (xml-tag-elements %node))
@@ -270,7 +276,7 @@
   (let ((i (position #\: name)))
     #'(lambda (node)
         (when (string= name (xml-node-name node) :start1 (and i (1+ i)))
-          (let ((ns (xml-element-ns node)))
+          (let ((ns (xml-node-namespace node)))
             (if (or (null ns) (null i))
                 t
               (string= name (xml-node-name ns) :end1 i)))))))
