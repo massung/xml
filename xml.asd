@@ -10,5 +10,6 @@
   :license "Apache 2.0"
   :description "Non-validating XML parsing for Common Lisp."
   :serial t
-  :components ((:file "xml"))
+  :components ((:file "xml")
+               (:file "query"))
   :depends-on ("parse" "re" "lexer" "markup"))

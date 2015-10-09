@@ -199,7 +199,7 @@
 
 ;;; ----------------------------------------------------
 
-(defmethod xml-query ((node xml-element) (query xml-query))
+(defmethod xml-query ((node xml-node) (query xml-query))
   "Execute a query on a node to return a subset of values."
   (xml-query-run (list node) query))
 
