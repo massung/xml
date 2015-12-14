@@ -66,6 +66,9 @@
    #:xml-tag-elements
    #:xml-tag-attributes
 
+   ;; get an attribute from a tag
+   #:xml-tag-get
+
    ;; utility functions
    #:xml-name-char-p
    #:xml-token-char-p))
@@ -796,3 +799,14 @@
                         ;; anything else, just assume utf-8
                         (t :utf-8))))
       (decode-string-from-octets bytes :external-format format))))
+
+;;; ----------------------------------------------------
+
+(defmethod xml-tag-get ((tag xml-tag) att &key if-not-found)
+  "Find an XML tag attribute and parse it."
+  (with-slots (attributes)
+      tag
+    (let ((a (find att attributes :key #'xml-node-name :test #'string=)))
+      (if (null a)
+          (values if-not-found nil)
+        (values (xml-node-value a) t)))))
