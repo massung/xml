@@ -4,7 +4,7 @@
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (use-package :xml))
 
-(defparameter *test-path* #p"~/ccl-projects/xml/test/xmltest/"
+(defparameter *test-path* #p"d:/ccl-projects/xml/test/xmltest/"
   "Location on disk where the test suite resides.")
 
 (defun run-test-suite ()
@@ -18,9 +18,9 @@
        for test in (xml-query suite "//TEST")
 
        ;; get the id and uri
-       for type = (xml-node-value (xml-query-attribute test "TYPE"))
-       for id = (xml-node-value (xml-query-attribute test "ID"))
-       for uri = (xml-node-value (xml-query-attribute test "URI"))
+       for type = (xml-node-value (first (xml-query test "@TYPE")))
+       for id = (xml-node-value (first (xml-query test "@ID")))
+       for uri = (xml-node-value (first (xml-query test "@URI")))
 
        ;; load the test document - malformed documents *should* fail
        for doc = (handler-case
