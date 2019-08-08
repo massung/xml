@@ -1,4 +1,4 @@
-;;;; Non-validating, Lightweight XML parser for ClozureCL
+;;;; Non-validating, Lightweight XML parser for SBCL
 ;;;;
 ;;;; Copyright (c) Jeffrey Massung
 ;;;;
@@ -18,7 +18,7 @@
 ;;;;
 
 (defpackage :xml
-  (:use :cl :ccl :parse :re :rfc-date :lexer :markup)
+  (:use :cl :parse :re :rfc-date :lexer :markup)
   (:export
 
    ;; parsing, loading, and reading
@@ -798,7 +798,7 @@
 
                         ;; anything else, just assume utf-8
                         (t :utf-8))))
-      (decode-string-from-octets bytes :external-format format))))
+      (sb-ext:octets-to-string bytes :external-format format))))
 
 ;;; ----------------------------------------------------
 
