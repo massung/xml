@@ -275,7 +275,7 @@
   "Return a match function comparing a name to a node."
   (let ((i (position #\: name)))
     #'(lambda (node)
-        (when (string= name (xml-node-name node) :start1 (and i (1+ i)))
+        (when (string= name (xml-node-name node) :start1 (if i (1+ i) 0))
           (let ((ns (xml-node-namespace node)))
             (if (or (null ns) (null i))
                 t

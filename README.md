@@ -1,6 +1,6 @@
 # Introduction
 
-A small, quick, lightweight, and fairly-well featured XML parser and query language for Common Lisp. It has the following dependencies:
+A small, quick, lightweight, and fairly-well featured XML parser and query language for SBCL. It has the following dependencies:
 
 * [PARSE](http://github.com/massung/parse)
 * [RE](http://github.com/massung/re)
