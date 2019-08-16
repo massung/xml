@@ -18,7 +18,7 @@
 ;;;;
 
 (defpackage :xml
-  (:use :cl :parse :re :rfc-date :lexer :markup)
+  (:use :cl :parse :re :lexer :markup)
   (:export
 
    ;; parsing, loading, and reading
