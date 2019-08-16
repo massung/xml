@@ -12,4 +12,4 @@
   :serial t
   :components ((:file "xml")
                (:file "query"))
-  :depends-on ("parse" "re" "lexer" "markup"))
+  :depends-on ("parse" "re" "lexer" "markup" "rfc-date"))
